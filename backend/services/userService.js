@@ -5,59 +5,6 @@ import { getRedisClient } from '../config/redisSetup.js';
 import { publishMessage } from '../utils/kafkaProducer.js';
 import { createError } from '../utils/errorHandler.js';
 import { Friend } from '../models/friendModel.js';
-// export const addFriend = async (userId, email, nickname = null) => {
-//   const friend = await User.findOne({ email });
-//   if (!friend) throw createError(404, 'User not found');
-//   if (friend._id.toString() === userId) throw createError(400, 'Cannot add yourself as a friend');
-
-//   const friendData = await createFriend(userId, friend._id, nickname);
-
-//   await publishMessage('friend-events', {
-//     event: 'friend_added',
-//     userId,
-//     friendId: friend._id,
-//     email: friend.email,
-//   });
-
-//   return { friend: { id: friend._id, name: friend.name, email, nickname: friendData.nickname } };
-// };
-
-
-
-// export const addFriend = async (userId, email, nickname = null) => {
-//   const friend = await User.findOne({ email });
-//   if (!friend) throw createError(404, 'User not found');
-
-//   if (friend._id.toString() === userId) {
-//     throw createError(400, 'Cannot add yourself as a friend');
-//   }
-
-//   // Check only one direction: user → friend
-//   const alreadyFriend = await Friend.exists({ userId, friendId: friend._id });
-//   if (alreadyFriend) {
-//     throw createError(409, 'Already friends');
-//   }
-
-//   // Add user → friend (one-way)
-//   const friendData = await createFriend(userId, friend._id, nickname);
-
-//   await publishMessage('friend-events', {
-//     event: 'friend_added',
-//     userId,
-//     friendId: friend._id,
-//     email: friend.email,
-//   });
-
-//   return {
-//     friend: {
-//       id: friend._id,
-//       name: friend.name,
-//       email: friend.email,
-//       nickname: friendData.nickname
-//     },
-//     message: 'Friend added successfully'
-//   };
-// };
 
 export const addFriend = async (userId, email, nickname = null) => {
   const friend = await User.findOne({ email });
