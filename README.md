@@ -1,7 +1,13 @@
-# Chat Application Backend
+# AI Chat Application 
 
 ## Overview
 A scalable, real-time chat application backend built with Node.js, utilizing MongoDB for persistent storage, Redis for caching, Kafka for message queuing, and Socket.IO for real-time communication. Supports user-to-user messaging and AI-powered responses via the Gemini API. Designed for high availability, fault tolerance, and efficient message processing.
+
+## Project Type
+This is a **Full MERN Stack AI Chat Application** project featuring:
+- **Backend**: Node.js with Socket.IO, MongoDB, Redis, and Kafka
+- **Frontend**: Built with Vite, Tailwind CSS, and Socket.IO Client
+- **AI Integration**: Gemini API for intelligent responses
 
 ## Features
 - **Real-Time Messaging**: Instant message delivery using Socket.IO with Redis adapter for scalability
@@ -22,6 +28,7 @@ A scalable, real-time chat application backend built with Node.js, utilizing Mon
 - **Zookeeper** - Kafka coordination
 - **Socket.IO** - Real-time communication
 - **Docker** - Containerization
+- **Frontend**: Vite, Tailwind CSS, Socket.IO Client
 
 ### Key Dependencies
 - `mongoose` - MongoDB object modeling
@@ -76,16 +83,10 @@ A scalable, real-time chat application backend built with Node.js, utilizing Mon
 1. **Clone the Repository**
    ```bash
    git clone https://github.com/shubharoydev/ai-chat-app.git
-   cd AI-CHAT-APP
    ```
 
-2. **Install Dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Environment Configuration**
-   Create `.env` file:
+2. **Environment Configuration**
+   Create `.env` file in backend folder:
    ```env
    MONGODB_URI=mongodb://localhost:27017/chatapp
    REDIS_URL=redis://localhost:6379
@@ -108,20 +109,36 @@ A scalable, real-time chat application backend built with Node.js, utilizing Mon
    ARCJET_KEY=<your-arcjet-key>
    ```
 
-4. **Start Infrastructure Services**
+2. **Environment Configuration**
+   Create `.env` file in frontend folder:
+   ```env
+   VITE_API_URL=http://localhost:3000/api
+   VITE_WS_URL=ws://localhost:3000
+   ```
+
+3. **Start Infrastructure Services**
    ```bash
    docker-compose up -d
    ```
 
-5. **Launch Application**
+4. **Launch Backend Application**
    ```bash
-   npm start
+   cd backend 
+   npm install
+   npm run dev 
    ```
 
-6. **Access Monitoring**
+6. **Launch Frontend Application**
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+
+7. **Access Applications**
+   - Frontend: http://localhost:5173
+   - Backend: http://localhost:3000
    - Kafka UI: http://localhost:8080
-
-
 
 ## Docker Compose Configuration
 
