@@ -15,6 +15,8 @@ import {
 } from '../utils/validator.js'; 
 import { createError } from '../utils/errorHandler.js';
 
+// SIGNUP //
+
 export const signup = async (req, res, next) => {
   try {
     const { error } = signupSchema.validate(req.body);
@@ -49,6 +51,13 @@ export const signup = async (req, res, next) => {
       maxAge: ms(jwtAccessExpiry),
     });
 
+    res.cookie('refreshToken', refreshToken, {    
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: ms(jwtRefreshExpiry),
+    }); 
+
     await producer.send({
       topic: 'user-events',
       messages: [
@@ -69,6 +78,8 @@ export const signup = async (req, res, next) => {
     next(error);
   }
 };
+
+// LOGIN //
 
 export const login = async (req, res, next) => {
   try {
@@ -114,6 +125,13 @@ export const login = async (req, res, next) => {
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
       maxAge: ms(jwtAccessExpiry),
+    }); 
+
+    res.cookie('refreshToken', refreshToken, {     
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: ms(jwtRefreshExpiry),
     });
 
     console.log('Login successful for user:', user.email);
@@ -126,7 +144,7 @@ export const login = async (req, res, next) => {
         email: user.email,
       },
       tokens: {
-        accessToken
+        accessToken,refreshToken
       }
     });
   } catch (error) {
@@ -134,86 +152,48 @@ export const login = async (req, res, next) => {
   }
 };
 
-// export const refreshToken = async (req, res, next) => {
-//   try {
-//     const { userId } = req.body;
-//     if (!userId) throw createError(400, 'User ID is required');
 
-//     const redisClient = getRedisClient();
-//     const storedRefreshToken = await redisClient.get(`refresh:${userId}`);
-
-//     if (!storedRefreshToken)
-//       throw createError(401, 'Invalid or expired refresh token');
-
-//     const decoded = jwt.verify(storedRefreshToken, jwtRefreshSecret);
-
-//     const newAccessToken = jwt.sign(
-//       { userId: decoded.userId },
-//       jwtAccessSecret,
-//       { expiresIn: jwtAccessExpiry }
-//     );
-
-//     res.cookie('accessToken', newAccessToken, {
-//       httpOnly: true,
-//       secure: process.env.NODE_ENV === 'production',
-//       sameSite: 'strict',
-//       maxAge: ms(jwtAccessExpiry),
-//     });
-
-//     res.json({ accessToken: newAccessToken, userId: decoded.userId });
-//   } catch (error) {
-//     if (error instanceof jwt.JsonWebTokenError) {
-//       return next(createError(401, 'Invalid refresh token'));
-//     }
-//     next(error);
-//   }
-// };
+// REFRESH TOKEN //
 
 export const refreshToken = async (req, res, next) => {
   try {
-    const refreshToken = req.cookies.refreshToken;
+    // Get refresh token from cookie (or body as fallback)
+    const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
     if (!refreshToken) throw createError(400, 'Refresh token is required');
 
+    // Verify and decode token
     const decoded = jwt.verify(refreshToken, jwtRefreshSecret);
 
+    // Check Redis for stored refresh token
     const redisClient = getRedisClient();
-    const storedRefreshToken = await redisClient.get(`refresh:${decoded.userId}`);
+    const storedToken = await redisClient.get(`refresh:${decoded.userId}`);
 
-    if (storedRefreshToken !== refreshToken) {
+    if (!storedToken || storedToken !== refreshToken) {
       throw createError(401, 'Invalid or expired refresh token');
     }
 
-    // issue new tokens
+    // Issue new access token (same refresh token)
     const newAccessToken = jwt.sign(
       { userId: decoded.userId },
       jwtAccessSecret,
       { expiresIn: jwtAccessExpiry }
     );
 
-    const newRefreshToken = jwt.sign(
-      { userId: decoded.userId },
-      jwtRefreshSecret,
-      { expiresIn: jwtRefreshExpiry }
-    );
-
-    // rotate refresh token in Redis
-    await redisClient.set(
-      `refresh:${decoded.userId}`,
-      newRefreshToken,
-      'EX',
-      ms(jwtRefreshExpiry) / 1000
-    );
-
-    // set new refresh token in httpOnly cookie
-    res.cookie('refreshToken', newRefreshToken, {
+    // Update access token cookie
+    res.cookie('accessToken', newAccessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: ms(jwtRefreshExpiry),
+      maxAge: ms(jwtAccessExpiry),
     });
 
-    // return new access token in JSON
-    res.json({ accessToken: newAccessToken, userId: decoded.userId });
+    // Return new access token
+    return res.json({
+      message: 'Access token refreshed successfully',
+      accessToken: newAccessToken,
+      userId: decoded.userId,
+    });
+
   } catch (error) {
     if (error instanceof jwt.JsonWebTokenError) {
       return next(createError(401, 'Invalid refresh token'));
@@ -223,6 +203,7 @@ export const refreshToken = async (req, res, next) => {
 };
 
 
+// LOGOUT //
 
 export const logout = async (req, res, next) => {
   try {
@@ -236,6 +217,12 @@ export const logout = async (req, res, next) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
+    });
+
+    res.clearCookie('refreshToken', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
     });
 
     res.status(200).json({ message: 'Logout successful' });

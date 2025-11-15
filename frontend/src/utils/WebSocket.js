@@ -1,103 +1,106 @@
 import { io } from 'socket.io-client';
-import refreshAccessToken from './api.js';
 
 let socket = null;
 let reconnectAttempts = 0;
 const maxReconnectAttempts = 5;
-const reconnectDelay = 2000;
+const reconnectionDelay = 2000;
 let messageQueue = [];
 
-const getErrorMessage = (error) => {
-  if (!error) return 'Unknown error';
-  if (typeof error === 'string') return error;
-  if (error.message) return error.message;
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return 'Unknown error';
-  }
-};
-
-export const connectWebSocket = (token, onMessage, onError) => {
-  if (!token) {
-    console.error('No access token provided for Socket.IO connection');
-    onError(new Error('No access token provided'));
-    return null;
-  }
-
+//connect
+export const connectWebSocket = (onMessage, onError) => {
+  console.log('[WebSocket] Initializing WebSocket connection...');
   if (socket) {
+    console.log('[WebSocket] Disconnecting existing WebSocket...');
     socket.disconnect();
+    console.log('[WebSocket] Existing WebSocket disconnected');
   }
 
   const socketUrl = import.meta.env.VITE_WS_URL;
   if (!socketUrl) {
-    console.error(
-      'Socket.IO URL is not defined. Please check VITE_WS_URL in .env.'
-    );
-    onError(new Error('Socket.IO URL is not defined'));
+    onError(new Error('VITE_WS_URL missing'));
     return null;
   }
 
-  console.log('Attempting to connect to Socket.IO at:', socketUrl);
-
   socket = io(socketUrl, {
-    auth: { token: `Bearer ${token}` },
+    withCredentials: true,
+    transports: ['websocket'],
     reconnection: true,
     reconnectionAttempts: maxReconnectAttempts,
-    reconnectionDelay: reconnectDelay,
-    transports: ['websocket'],
+    reconnectionDelay,
   });
 
   socket.on('connect', () => {
-    console.log('Socket.IO connected to:', socketUrl);
-    console.log('Joined room for userId:', socket.auth.userId || 'unknown'); // Added: Log room subscription
+    console.log('[WebSocket] Connected to server with socket ID:', socket.id);
     reconnectAttempts = 0;
-    while (messageQueue.length > 0) {
-      const queuedMessage = messageQueue.shift();
-      console.log('Sending queued message:', queuedMessage);
-      socket.emit('sendMessage', queuedMessage);
-    }
+    while (messageQueue.length) socket.emit('sendMessage', messageQueue.shift());
   });
 
-  socket.on('reconnect_attempt', () => {
-    console.log('Reconnect attempt:', reconnectAttempts + 1);
-    if (reconnectAttempts >= maxReconnectAttempts) {
-      onError(new Error('Max reconnect attempts reached'));
-    }
-    reconnectAttempts++;
+  socket.on('reconnect_attempt', (attemptNumber) => {
+    console.log(`[WebSocket] Reconnection attempt ${attemptNumber}...`);
   });
 
-  socket.on('receiveMessage', (message) => {
-    console.log('Received message:', message);
-    onMessage({
-      id: message.id || Date.now().toString(),
-      chatId: message.chatId,
-      userId: message.userId,
-      friendId: message.friendId,
-      content: message.content,
-      timestamp: message.timestamp || new Date().toISOString(),
-      isAI: message.isAI ?? false, 
-      tempId: message.tempId,
+  socket.on('reconnect', (attemptNumber) => {
+    console.log(`[WebSocket] Successfully reconnected after ${attemptNumber} attempts`);
+  });
+
+  socket.on('reconnect_error', (error) => {
+    console.error('[WebSocket] Reconnection error:', error);
+  });
+
+  socket.on('reconnect_failed', () => {
+    console.error('[WebSocket] Failed to reconnect after multiple attempts');
+  });
+
+  socket.on('receiveMessage', (msg) => {
+    const messageId = msg.tempId || msg.id || `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    console.log('[WebSocket] Received message:', {
+      id: messageId,
+      from: msg.userId,
+      to: msg.friendId,
+      content: msg.content?.substring(0, 30) + (msg.content?.length > 30 ? '...' : '')
     });
+
+    if (typeof onMessage === 'function') {
+      try {
+        onMessage({
+          id: messageId,
+          chatId: msg.chatId || (msg.userId && msg.friendId ?
+            [msg.userId, msg.friendId].sort().join(':') : undefined),
+          userId: msg.userId,
+          friendId: msg.friendId,
+          content: msg.content,
+          timestamp: msg.timestamp || new Date().toISOString(),
+          isAI: msg.isAI ?? false,
+          tempId: msg.tempId,
+          ...(msg._id && { _id: msg._id }),
+          ...(msg.createdAt && { createdAt: msg.createdAt })
+        });
+      } catch (err) {
+        console.error('[WebSocket] Error in message handler:', err);
+      }
+    }
+  });
+
+  socket.on('connect_error', (err) => {
+    console.error('[WebSocket] Connection error:', err.message);
+    onError(err);
   });
 
   socket.on('error', (error) => {
-    const message = getErrorMessage(error);
-    console.error('Socket.IO error:', message);
-    onError(new Error(message));
+    console.error('[WebSocket] Connection error:', error);
+    console.error('[WebSocket] Error details:', {
+      message: error.message,
+      type: error.type,
+      description: error.description
+    });
+    if (onError) onError(error);
   });
 
-  socket.on('connect_error', (error) => {
-    const message = getErrorMessage(error);
-    console.error('Connection error:', message);
-    onError(new Error(message));
-  });
-
-  socket.on('disconnect', (reason) => {
-    console.log('Socket.IO disconnected. Reason:', reason);
-    if (reason === 'io server disconnect') {
-      onError(new Error('Server disconnected the socket'));
-    }
+  socket.on('disconnect', (r) => {
+    console.log('[WebSocket] Disconnected from server. Reason:', r);
+    console.log('[WebSocket] Will attempt to reconnect automatically...');
+    if (onError) onError(new Error(`Disconnected: ${r}`));
   });
 
   return socket;
@@ -111,12 +114,68 @@ export const disconnectWebSocket = () => {
   }
 };
 
-export const sendWebSocketMessage = (message) => {
-  if (socket && socket.connected) {
-    console.log('Emitting sendMessage:', message);
-    socket.emit('sendMessage', message);
-  } else {
-    console.warn('Socket.IO is not connected. Queuing message:', message);
-    messageQueue.push(message);
+export const sendWebSocketMessage = (payload) => {
+  if (!socket) {
+    const error = new Error('WebSocket not initialized');
+    console.warn('[WebSocket] Socket not initialized, queueing message');
+    messageQueue.push(payload);
+    return Promise.reject(error);
   }
+
+  if (!socket.connected) {
+    const error = new Error('WebSocket not connected');
+    console.warn('[WebSocket] Socket not connected, queueing message');
+    messageQueue.push(payload);
+
+    if (reconnectAttempts < maxReconnectAttempts) {
+      console.log('[WebSocket] Attempting to reconnect...');
+      socket.connect();
+    }
+
+    return Promise.reject(error);
+  }
+
+  return new Promise((resolve, reject) => {
+    try {
+      console.log('[WebSocket] Sending message:', {
+        to: payload.friendId,
+        content: payload.content?.substring(0, 30) + (payload.content?.length > 30 ? '...' : '')
+      });
+
+      const messageToSend = {
+        ...payload,
+        timestamp: payload.timestamp || new Date().toISOString(),
+        tempId: payload.tempId,
+      };
+
+      console.log('[WebSocket] Sending message with payload:', {
+        ...messageToSend,
+        content: messageToSend.content?.substring(0, 30) + (messageToSend.content?.length > 30 ? '...' : '')
+      });
+
+      socket.emit('sendMessage', messageToSend, (response) => {
+        if (response?.error) {
+          console.error('[WebSocket] Error sending message:', response.error);
+          reject(new Error(response.error));
+        } else {
+          console.log('[WebSocket] Message sent successfully', {
+            ...response,
+            messages: Array.isArray(response.messages)
+              ? response.messages.map(m => ({
+                ...m,
+                content: m.content?.substring(0, 30) + (m.content?.length > 30 ? '...' : '')
+              }))
+              : response.messages
+          });
+          resolve({
+            ...response,
+            tempId: messageToSend.tempId
+          });
+        }
+      });
+    } catch (err) {
+      console.error('[WebSocket] Error in sendWebSocketMessage:', err);
+      reject(err);
+    }
+  });
 };

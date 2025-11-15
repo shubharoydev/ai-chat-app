@@ -1,5 +1,3 @@
-
-
 import jwt from 'jsonwebtoken';
 import { getRedisClient } from '../config/redisSetup.js';
 import {
@@ -7,43 +5,39 @@ import {
   jwtRefreshSecret,
   jwtAccessExpiry,
 } from '../config/env.js';
+import ms from 'ms';
 import { createError } from '../utils/errorHandler.js';
 
-/**
- * Middleware to authenticate requests and refresh access tokens if expired.
- */
 export const authMiddleware = async (req, res, next) => {
   try {
-    // const accessToken = req.cookies.accessToken;
-    const accessToken =
-  req.cookies.accessToken ||
-  (req.headers.authorization?.startsWith('Bearer ') && req.headers.authorization.split(' ')[1]);
+    // Only use cookies for tokens (fully cookie-based)
+    const accessToken = req.cookies.accessToken;
+    const refreshToken = req.cookies.refreshToken;
+   console.log('Cookies:', req.cookies);
+   console.log('AccessToken:', req.cookies?.accessToken);
 
+    if (!accessToken) throw createError(401, 'Access token missing');
 
-    if (!accessToken) {
-      throw createError(401, 'No access token provided');
-    }
-
-    // First try to verify access token
     try {
+      // Verify the access token first
       const decoded = jwt.verify(accessToken, jwtAccessSecret);
       req.user = { userId: decoded.userId };
       return next();
     } catch (err) {
-      // Token expired? Try to auto-refresh using Redis-stored refresh token
+      // If the access token is expired, try using the refresh token
       if (err.name !== 'TokenExpiredError') throw err;
 
-      // Decode the expired token just to extract the user ID
-      const decodedExpired = jwt.decode(accessToken);
-      if (!decodedExpired?.userId) throw createError(401, 'Invalid access token');
+      if (!refreshToken) throw createError(401, 'Refresh token missing');
 
-      const redisClient = getRedisClient();
-      const refreshToken = await redisClient.get(`refresh:${decodedExpired.userId}`);
-      if (!refreshToken) throw createError(401, 'Refresh token not found');
-
-      // Verify refresh token
+      // Verify refresh token validity
       const decodedRefresh = jwt.verify(refreshToken, jwtRefreshSecret);
       if (!decodedRefresh?.userId) throw createError(401, 'Invalid refresh token');
+
+      // Validate refresh token with Redis (token rotation check)
+      const redisClient = getRedisClient();
+      const storedRefreshToken = await redisClient.get(`refresh:${decodedRefresh.userId}`);
+      if (!storedRefreshToken || storedRefreshToken !== refreshToken)
+        throw createError(401, 'Invalid or expired refresh token');
 
       // Issue a new access token
       const newAccessToken = jwt.sign(
@@ -52,19 +46,21 @@ export const authMiddleware = async (req, res, next) => {
         { expiresIn: jwtAccessExpiry }
       );
 
+      // Send the new access token cookie
       res.cookie('accessToken', newAccessToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'strict',
-        maxAge: jwtAccessExpiry,
+        maxAge: ms(jwtAccessExpiry),
       });
 
+      // Attach user ID to request and continue
       req.user = { userId: decodedRefresh.userId };
       return next();
     }
   } catch (error) {
-    if (error.name === 'JsonWebTokenError') {
-      next(createError(401, 'Invalid access token'));
+    if (error instanceof jwt.JsonWebTokenError) {
+      next(createError(401, 'Invalid or malformed token'));
     } else {
       next(error);
     }

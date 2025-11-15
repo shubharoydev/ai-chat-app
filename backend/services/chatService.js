@@ -1,3 +1,4 @@
+import { getIO } from '../sockets/chatSocket.js';
 import { Friend } from '../models/friendModel.js';
 import { Message } from '../models/messageModel.js';
 import { getRedisClient } from '../config/redisSetup.js';
@@ -12,22 +13,26 @@ import mongoose from 'mongoose';
 const RECENT_TTL = 7 * 24 * 60 * 60; // 7 days
 const FAILED_TTL = 7 * 24 * 60 * 60; // 7 days
 
-// ✅ Kafka publisher
+// Kafka publisher
 const publishToKafka = async (msg) => {
-  await producer.send({
-    topic: 'chat-messages-persist',
-    messages: [{ value: JSON.stringify(msg) }],
-  });
-
-  logInfo('📤 Published to Kafka', { messageId: msg.id, chatId: msg.chatId });
+  try {
+    await producer.send({
+      topic: 'chat-messages-persist',
+      messages: [{ value: JSON.stringify(msg) }],
+    });
+    logInfo('Published to Kafka', { chatId: msg.chatId, tempId: msg.tempId });
+  } catch (err) {
+    logError('Kafka publish failed', { error: err.message });
+    throw err;
+  }
 };
 
-export const sendMessage = async (userId, friendId, content) => {
-  const tempId = uuidv4(); // ✅ temp unique ID for Redis/Kafka
+export const sendMessage = async (userId, friendId, content ,clientTempId) => {
+  const tempId = clientTempId;
   const chatId = [userId, friendId].sort().join(':');
 
   const message = {
-    tempId,        
+    tempId,
     chatId,
     userId,
     friendId,
@@ -37,13 +42,17 @@ export const sendMessage = async (userId, friendId, content) => {
   };
 
   const redisClient = getRedisClient();
+  const io = getIO();
 
-  // ==================  Handle /ai messages ==================
+  io.to(userId).emit('receiveMessage', message);
+  io.to(friendId).emit('receiveMessage', message);
+
+  // Handle /ai messages
   if (content.startsWith('/ai ') || content.startsWith('/ai:')) {
     const query = content.slice(4).trim();
     if (!query) throw createError(400, 'AI query cannot be empty');
 
-    // Push user message to Redis recent
+    // Save user message to Redis
     await redisClient.lpush(`chat:recent:${userId}:${friendId}`, JSON.stringify(message));
     await redisClient.lpush(`chat:recent:${friendId}:${userId}`, JSON.stringify(message));
     await redisClient.expire(`chat:recent:${userId}:${friendId}`, 7 * 24 * 3600);
@@ -57,7 +66,7 @@ export const sendMessage = async (userId, friendId, content) => {
       await redisClient.expire(`chat:failed:${chatId}`, 7 * 24 * 3600);
     }
 
-    // Call Gemini AI
+    //  Generate AI response
     const aiResponse = await getGeminiResponse(query);
     const aiMessage = {
       tempId: uuidv4(),
@@ -69,7 +78,11 @@ export const sendMessage = async (userId, friendId, content) => {
       isAI: true,
     };
 
-    // Push AI message to Redis recent
+    //  Emit AI message instantly too
+    io.to(userId).emit('receiveMessage', aiMessage);
+    io.to(friendId).emit('receiveMessage', aiMessage);
+
+    // Save AI message to Redis
     await redisClient.lpush(`chat:recent:${userId}:${friendId}`, JSON.stringify(aiMessage));
     await redisClient.lpush(`chat:recent:${friendId}:${userId}`, JSON.stringify(aiMessage));
     await redisClient.expire(`chat:recent:${userId}:${friendId}`, 7 * 24 * 3600);
@@ -86,13 +99,11 @@ export const sendMessage = async (userId, friendId, content) => {
     return [message, aiMessage];
   }
 
-  // Push normal message to Redis recent
   await redisClient.lpush(`chat:recent:${userId}:${friendId}`, JSON.stringify(message));
   await redisClient.lpush(`chat:recent:${friendId}:${userId}`, JSON.stringify(message));
   await redisClient.expire(`chat:recent:${userId}:${friendId}`, 7 * 24 * 3600);
   await redisClient.expire(`chat:recent:${friendId}:${userId}`, 7 * 24 * 3600);
 
-  // Publish to Kafka
   try {
     await asyncRetry(async () => publishToKafka(message), { retries: 3, minTimeout: 1000, maxTimeout: 5000 });
   } catch (err) {
@@ -104,7 +115,7 @@ export const sendMessage = async (userId, friendId, content) => {
 };
 
 
-// ✅ Get last 20 messages
+// Get last 20 messages
 export const getMessages = async (userId, friendId) => {
   try {
     const redisClient = getRedisClient();
@@ -131,7 +142,7 @@ export const getMessages = async (userId, friendId) => {
   }
 };
 
-// ✅ Add friend
+// Add friend
 export const addFriend = async (userId, friendId) => {
   try {
     if (userId === friendId) {
@@ -161,7 +172,7 @@ export const addFriend = async (userId, friendId) => {
   }
 };
 
-// ✅ Retry failed messages every 30 min
+// Retry failed messages every 30 min
 export const retryFailedMessages = async () => {
   try {
     const redisClient = getRedisClient();

@@ -25,3 +25,6 @@ export const jwtRefreshExpiry = process.env.JWT_REFRESH_EXPIRY;
 
 export const arcjetKey = process.env.ARCJET_KEY;
 export const arcjetEnv = process.env.ARCJET_ENV || nodeEnv;
+
+
+export const GEMINI_API_KEY=process.env.GEMINI_API_KEY;

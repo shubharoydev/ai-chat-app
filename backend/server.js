@@ -21,7 +21,7 @@ import { globalErrorHandler } from './utils/errorHandler.js';
 const app = express();
 const server = createServer(app);
 
-// ✅ Import producer + ensureTopic
+//  Import producer + ensureTopic
 import { ensureTopic, producer } from './config/kafka.js';
 
 await ensureTopic("chat-topic"); // replace with your topic name(s)
@@ -30,7 +30,7 @@ app.use(express.urlencoded({ extended: true }));
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.CLIENT_ORIGIN || 'http://localhost:3000',
+  origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173',
   credentials: true,
 }));
 app.use(express.json());
@@ -60,7 +60,7 @@ const startServer = async () => {
     await redisClient.ping(); // Test Redis Cluster connection
     logInfo('Redis connected successfully');
     
-    // ✅ Explicitly connect Kafka producer
+    // Explicitly connect Kafka producer
     await producer.connect();
     logInfo('Kafka producer ready and connected');
     

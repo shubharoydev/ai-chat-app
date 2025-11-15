@@ -5,6 +5,7 @@ import { sendMessage } from '../services/chatService.js';
 import { getRedisClient } from '../config/redisSetup.js';
 import { logInfo, logError } from '../utils/logger.js';
 import { createError } from '../utils/errorHandler.js';
+import cookie from 'cookie';
 
 let io;
 
@@ -28,92 +29,87 @@ export const initializeSocket = (server) => {
 
   io.use(async (socket, next) => {
     try {
-      let token = socket.handshake.auth?.token || socket.handshake.headers["authorization"];
-      console.log('Received token:', token);
-      if (!token) {
-        throw createError(401, 'No access token provided');
-      }
+      const cookies = socket.handshake.headers.cookie
+        ? cookie.parse(socket.handshake.headers.cookie)
+        : {};
+      const token = cookies.accessToken;
 
-      if (token.startsWith('Bearer ')) {
-        token = token.slice(7);
+      console.log("Parsed cookies:", cookies);
+      console.log("Access token from cookie:", token ? "exists" : "missing");
+
+      if (!token) {
+        throw createError(401, "No access token provided");
       }
 
       const decoded = verifyAccessToken(token);
-      console.log('Decoded token:', decoded);
       socket.user = { userId: decoded.userId };
 
-      // await redisClient.setWithExpiry(
+      const redisClient = getRedisClient();
+      // await redisClient.set(
       //   `user:online:${socket.user.userId}`,
-      //   'true',
-      //   60,
+      //   "true",
+      //   "EX",
+      //   60
       // );
-      
-      logInfo('✅ User logged in', { 
+
+      logInfo("Socket authenticated", {
         userId: socket.user.userId,
-        socketId: socket.id 
+        socketId: socket.id,
       });
 
       next();
     } catch (error) {
-      logError('❌ Socket authentication failed', { 
+      logError("Socket authentication failed", {
         error: error.message,
-        stack: error.stack,
-        socketId: socket?.id
+        socketId: socket?.id,
       });
       next(error);
     }
   });
 
   io.on('connection', (socket) => {
-    logInfo('User connected', { userId: socket.user.userId });
-    socket.join(socket.user.userId);
-    console.log('User joined room:', socket.user.userId);
+    const userId = socket.user.userId;
+    logInfo('User connected', { userId });
+    socket.join(userId);
+    console.log('User joined room:', userId);
 
+    // sendMessage handler 
     socket.on('sendMessage', async ({ friendId, content, tempId }, callback) => {
       try {
-        if (!friendId || !content) throw createError(400, 'Friend ID and content are required');
-
-        const messages = await sendMessage(socket.user.userId, friendId, content);
-        const messageArray = Array.isArray(messages) ? messages : [messages];
-
-        for (const message of messageArray) {
-          const messageWithTemp = tempId ? { ...message, tempId } : message;
-          
-          // Modified: Emit to both userId and friendId explicitly
-          console.log('Emitting to userId:', socket.user.userId, messageWithTemp);
-          io.to(socket.user.userId).emit('receiveMessage', messageWithTemp);
-          console.log('Emitting to friendId:', message.friendId, messageWithTemp);
-          io.to(message.friendId).emit('receiveMessage', messageWithTemp);
+        if (!friendId || !content) {
+          throw createError(400, 'Friend ID and content are required');
         }
+        const result = await sendMessage(userId, friendId, content,tempId);
+        const messages = Array.isArray(result) ? result : [result];
 
-        logInfo('📤 Message sent', { 
-          chatId: messageArray[0].chatId, 
-          userId: socket.user.userId,
-          friendId: messageArray[0].friendId,
-          tempId
+        // Log success
+        logInfo('Message sent', { 
+          chatId: messages[0].chatId, 
+          userId,
+          friendId: messages[0].friendId,
+          tempId: messages[0].tempId
         });
-        
+
+        // Confirm to sender (frontend)
         if (typeof callback === 'function') {
-          callback({ 
-            status: 'success', 
-            messages: messageArray,
-            tempId
-          });
+          callback({ status: 'success', messages });
         }
+
       } catch (error) {
-        logError('❌ Failed to send message', { 
+        logError('Failed to send message', { 
           error: error.message, 
-          userId: socket.user.userId,
+          userId,
           tempId
         });
-        
+
+        // Send error back to sender only
         if (tempId) {
-          io.to(socket.user.userId).emit('error', {
+          io.to(userId).emit('error', {
             tempId,
             error: error.message
           });
         }
-        
+
         if (typeof callback === 'function') {
           callback({ 
             status: 'error', 
@@ -124,6 +120,7 @@ export const initializeSocket = (server) => {
       }
     });
 
+    // DISCONNECT HANDLER 
     socket.on('disconnect', async () => {
       try {
         if (!socket.user?.userId) {
@@ -132,8 +129,8 @@ export const initializeSocket = (server) => {
         }
 
         const redisClient = getRedisClient();
-        //await redisClient.del(`user:online:${socket.user.userId}`);
-        
+        // await redisClient.del(`user:online:${socket.user.userId}`);
+
         logInfo('User disconnected', { 
           userId: socket.user.userId, 
           socketId: socket.id 
@@ -151,6 +148,7 @@ export const initializeSocket = (server) => {
   return io;
 };
 
+// EXPORT getIO 
 export const getIO = () => {
   if (!io) {
     throw new Error('Socket.IO not initialized');
