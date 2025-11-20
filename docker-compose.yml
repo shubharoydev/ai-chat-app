@@ -58,7 +58,6 @@ services:
       KAFKA_DEFAULT_REPLICATION_FACTOR: 1
       KAFKA_NUM_PARTITIONS: 3
       KAFKA_MIN_INSYNC_REPLICAS: 1
-     
     networks:
       - kafka-net
 
@@ -82,7 +81,6 @@ services:
       KAFKA_DEFAULT_REPLICATION_FACTOR: 1
       KAFKA_NUM_PARTITIONS: 3
       KAFKA_MIN_INSYNC_REPLICAS: 1
-     
     networks:
       - kafka-net
 
@@ -106,7 +104,6 @@ services:
       KAFKA_DEFAULT_REPLICATION_FACTOR: 1
       KAFKA_NUM_PARTITIONS: 3
       KAFKA_MIN_INSYNC_REPLICAS: 1
-      
     networks:
       - kafka-net
 
@@ -122,6 +119,44 @@ services:
       DYNAMIC_CONFIG_ENABLED: "true"
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092,kafka2:29093,kafka3:29094
+    networks:
+      - kafka-net
+
+  backend:
+    build: ./backend
+    container_name: my-backend
+    ports:
+      - "${PORT}:3000"
+    env_file:
+      - ./backend/.env
+    environment:
+      PORT: ${PORT}
+      MONGODB_URI: ${MONGODB_URI}
+      KAFKA_BROKERS: ${KAFKA_BROKERS}
+      REDIS_URL: ${REDIS_URL}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN}
+      KAFKA_CLIENT_ID: ${KAFKA_CLIENT_ID}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRY: ${JWT_ACCESS_EXPIRY}
+      JWT_REFRESH_EXPIRY: ${JWT_REFRESH_EXPIRY}
+      ARCJET_ENV: ${ARCJET_ENV}
+      ARCJET_KEY: ${ARCJET_KEY}
+    depends_on:
+      - kafka
+      - kafka2
+      - kafka3
+    networks:
+      - kafka-net
+
+  frontend:
+    build: ./frontend
+    container_name: my-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
     networks:
       - kafka-net
 
