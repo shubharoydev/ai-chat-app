@@ -105,13 +105,13 @@ Built to support **high-traffic**, **multi-user**, **distributed environments**.
 ### Detailed Message Flow
 
 #### 1. Message Initiation & Real-Time Delivery
-![Message Flow](./docs/system-architecture.svg)
+<img src="./docs/system-architecture.svg" />
 
 #### 2. Message Persistence Pipeline
-![Persistence Pipeline](./docs/message-presistence.svg)
+<img src="./docs/message-presistence.svg" width="30%" height="20%" />
 
 #### 3. Failed Message Recovery
-![Failed Message Recovery](./docs/failed-message-recovery.svg)
+<img src="./docs/failed-message-recovery.svg" width="45%" height="50%" />
 
 ## Installation
 
@@ -139,7 +139,7 @@ Built to support **high-traffic**, **multi-user**, **distributed environments**.
 
    #Kafka ( Use localhost since app runs outside Docker)
    KAFKA_CLIENT_ID=chat-app
-   KAFKA_BROKERS=localhost:29092,localhost:29093,localhost:29094
+   KAFKA_BROKERS=localhost:9092,localhost:9093,localhost:9094
 
    # JWT
    JWT_ACCESS_SECRET=<your-jwt-access-secret>
