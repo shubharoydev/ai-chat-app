@@ -122,43 +122,43 @@ services:
     networks:
       - kafka-net
 
-  backend:
-    build: ./backend
-    container_name: my-backend
-    ports:
-      - "${PORT}:3000"
-    env_file:
-      - ./backend/.env
-    environment:
-      PORT: ${PORT}
-      MONGODB_URI: ${MONGODB_URI}
-      KAFKA_BROKERS: ${KAFKA_BROKERS}
-      REDIS_URL: ${REDIS_URL}
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      CLIENT_ORIGIN: ${CLIENT_ORIGIN}
-      KAFKA_CLIENT_ID: ${KAFKA_CLIENT_ID}
-      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
-      JWT_ACCESS_EXPIRY: ${JWT_ACCESS_EXPIRY}
-      JWT_REFRESH_EXPIRY: ${JWT_REFRESH_EXPIRY}
-      ARCJET_ENV: ${ARCJET_ENV}
-      ARCJET_KEY: ${ARCJET_KEY}
-    depends_on:
-      - kafka
-      - kafka2
-      - kafka3
-    networks:
-      - kafka-net
+  # backend:
+  #   build: ./backend
+  #   container_name: my-backend
+  #   ports:
+  #     - "${PORT}:3000"
+  #   env_file:
+  #     - ./backend/.env
+  #   environment:
+  #     PORT: ${PORT}
+  #     MONGODB_URI: ${MONGODB_URI}
+  #     KAFKA_BROKERS: ${KAFKA_BROKERS}
+  #     REDIS_URL: ${REDIS_URL}
+  #     GEMINI_API_KEY: ${GEMINI_API_KEY}
+  #     CLIENT_ORIGIN: ${CLIENT_ORIGIN}
+  #     KAFKA_CLIENT_ID: ${KAFKA_CLIENT_ID}
+  #     JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+  #     JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+  #     JWT_ACCESS_EXPIRY: ${JWT_ACCESS_EXPIRY}
+  #     JWT_REFRESH_EXPIRY: ${JWT_REFRESH_EXPIRY}
+  #     ARCJET_ENV: ${ARCJET_ENV}
+  #     ARCJET_KEY: ${ARCJET_KEY}
+  #   depends_on:
+  #     - kafka
+  #     - kafka2
+  #     - kafka3
+  #   networks:
+  #     - kafka-net
 
-  frontend:
-    build: ./frontend
-    container_name: my-frontend
-    ports:
-      - "5173:80"
-    depends_on:
-      - backend
-    networks:
-      - kafka-net
+  # frontend:
+  #   build: ./frontend
+  #   container_name: my-frontend
+  #   ports:
+  #     - "5173:80"
+  #   depends_on:
+  #     - backend
+  #   networks:
+  #     - kafka-net
 
 networks:
   kafka-net:

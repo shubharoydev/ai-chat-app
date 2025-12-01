@@ -111,7 +111,7 @@ Built to support **high-traffic**, **multi-user**, **distributed environments**.
 <img src="./docs/message-presistence.svg" width="30%" height="20%" />
 
 #### 3. Failed Message Recovery
-<img src="./docs/failed-message-recovery.svg" width="45%" height="50%" />
+<img src="./docs/failed-message-recovery.svg" width="55%" height="55%" />
 
 ## Installation
 
