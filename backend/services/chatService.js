@@ -27,9 +27,10 @@ const publishToKafka = async (msg) => {
   }
 };
 
-export const sendMessage = async (userId, friendId, content ,clientTempId) => {
+export const sendMessage = async (userId, friendId, content, clientTempId) => {
   const tempId = clientTempId;
   const chatId = [userId, friendId].sort().join(':');
+  const redisKey = `chat:recent:${chatId}`;
 
   const message = {
     tempId,
@@ -44,23 +45,25 @@ export const sendMessage = async (userId, friendId, content ,clientTempId) => {
   const redisClient = getRedisClient();
   const io = getIO();
 
-  io.to(userId).emit('receiveMessage', message);
-  io.to(friendId).emit('receiveMessage', message);
+  io.to(userId).emit("receiveMessage", message);
+  io.to(friendId).emit("receiveMessage", message);
 
-  // Handle /ai messages
-  if (content.startsWith('/ai ') || content.startsWith('/ai:')) {
+  // Handle AI mode
+  if (content.startsWith("/ai ") || content.startsWith("/ai:")) {
     const query = content.slice(4).trim();
-    if (!query) throw createError(400, 'AI query cannot be empty');
+    if (!query) throw createError(400, "AI query cannot be empty");
 
-    // Save user message to Redis
-    await redisClient.lpush(`chat:recent:${userId}:${friendId}`, JSON.stringify(message));
-    await redisClient.lpush(`chat:recent:${friendId}:${userId}`, JSON.stringify(message));
-    await redisClient.expire(`chat:recent:${userId}:${friendId}`, 7 * 24 * 3600);
-    await redisClient.expire(`chat:recent:${friendId}:${userId}`, 7 * 24 * 3600);
+    // Save user message
+    await redisClient.lpush(redisKey, JSON.stringify(message));
+    await redisClient.expire(redisKey, 7 * 24 * 3600);
 
-    // Publish user message to Kafka
+    // publish to kafka
     try {
-      await asyncRetry(async () => publishToKafka(message), { retries: 3, minTimeout: 1000, maxTimeout: 5000 });
+      await asyncRetry(() => publishToKafka(message), {
+        retries: 3,
+        minTimeout: 1000,
+        maxTimeout: 5000,
+      });
     } catch (err) {
       await redisClient.lpush(`chat:failed:${chatId}`, JSON.stringify(message));
       await redisClient.expire(`chat:failed:${chatId}`, 7 * 24 * 3600);
@@ -79,18 +82,19 @@ export const sendMessage = async (userId, friendId, content ,clientTempId) => {
     };
 
     //  Emit AI message instantly too
-    io.to(userId).emit('receiveMessage', aiMessage);
-    io.to(friendId).emit('receiveMessage', aiMessage);
+    io.to(userId).emit("receiveMessage", aiMessage);
+    io.to(friendId).emit("receiveMessage", aiMessage);
 
-    // Save AI message to Redis
-    await redisClient.lpush(`chat:recent:${userId}:${friendId}`, JSON.stringify(aiMessage));
-    await redisClient.lpush(`chat:recent:${friendId}:${userId}`, JSON.stringify(aiMessage));
-    await redisClient.expire(`chat:recent:${userId}:${friendId}`, 7 * 24 * 3600);
-    await redisClient.expire(`chat:recent:${friendId}:${userId}`, 7 * 24 * 3600);
+    // save AI message in same redis key
+    await redisClient.lpush(redisKey, JSON.stringify(aiMessage));
+    await redisClient.expire(redisKey, 7 * 24 * 3600);
 
-    // Publish AI message to Kafka
     try {
-      await asyncRetry(async () => publishToKafka(aiMessage), { retries: 3, minTimeout: 1000, maxTimeout: 5000 });
+      await asyncRetry(() => publishToKafka(aiMessage), {
+        retries: 3,
+        minTimeout: 1000,
+        maxTimeout: 5000,
+      });
     } catch (err) {
       await redisClient.lpush(`chat:failed:${chatId}`, JSON.stringify(aiMessage));
       await redisClient.expire(`chat:failed:${chatId}`, 7 * 24 * 3600);
@@ -99,13 +103,16 @@ export const sendMessage = async (userId, friendId, content ,clientTempId) => {
     return [message, aiMessage];
   }
 
-  await redisClient.lpush(`chat:recent:${userId}:${friendId}`, JSON.stringify(message));
-  await redisClient.lpush(`chat:recent:${friendId}:${userId}`, JSON.stringify(message));
-  await redisClient.expire(`chat:recent:${userId}:${friendId}`, 7 * 24 * 3600);
-  await redisClient.expire(`chat:recent:${friendId}:${userId}`, 7 * 24 * 3600);
+  // Normal messages
+  await redisClient.lpush(redisKey, JSON.stringify(message));
+  await redisClient.expire(redisKey, 7 * 24 * 3600);
 
   try {
-    await asyncRetry(async () => publishToKafka(message), { retries: 3, minTimeout: 1000, maxTimeout: 5000 });
+    await asyncRetry(() => publishToKafka(message), {
+      retries: 3,
+      minTimeout: 1000,
+      maxTimeout: 5000,
+    });
   } catch (err) {
     await redisClient.lpush(`chat:failed:${chatId}`, JSON.stringify(message));
     await redisClient.expire(`chat:failed:${chatId}`, 7 * 24 * 3600);
@@ -115,29 +122,44 @@ export const sendMessage = async (userId, friendId, content ,clientTempId) => {
 };
 
 
-// Get last 20 messages
+//Get messages
 export const getMessages = async (userId, friendId) => {
   try {
     const redisClient = getRedisClient();
     const chatId = [userId, friendId].sort().join(':');
+    const redisKey = `chat:recent:${chatId}`;
 
-    let messages = [];
-    const cachedMessages = await redisClient.lrange(`chat:recent:${userId}:${friendId}`, 0, -1);
+    // Try Redis first
+    let cachedMessages = await redisClient.lrange(redisKey, 0, -1);
 
     if (cachedMessages.length > 0) {
-      messages = cachedMessages.map(JSON.parse);
-    } else {
-      const dbMessages = await Message.find({ chatId })
-        .sort({ timestamp: -1 })
-        .limit(20)
-        .lean();
-      messages = dbMessages.reverse();
+      const msgs = cachedMessages.map(JSON.parse);
+      return msgs.slice(-20); // ensure only last 20
     }
 
-    messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-    return messages.slice(-20);
+    // If Redis empty → fetch from MongoDB
+    const dbMessages = await Message.find({ chatId })
+      .sort({ timestamp: -1 })
+      .limit(20)
+      .lean();
+
+    const finalMessages = dbMessages.reverse(); // oldest → newest
+
+    // Save them to Redis (for next time)
+    if (finalMessages.length > 0) {
+      const pipeline = redisClient.multi();
+
+      finalMessages.forEach(msg => {
+        pipeline.lpush(redisKey, JSON.stringify(msg));
+      });
+
+      pipeline.expire(redisKey, 7 * 24 * 3600);
+      await pipeline.exec();
+    }
+
+    return finalMessages;
   } catch (error) {
-    logError('❌ Failed to fetch messages', { error: error.message });
+    logError("❌ Failed to fetch messages", { error: error.message });
     throw error;
   }
 };

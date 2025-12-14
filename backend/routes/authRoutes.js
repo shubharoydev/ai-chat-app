@@ -1,9 +1,13 @@
+import dotenv from 'dotenv';
+dotenv.config();
 import express from 'express';
 import { signup, login, refreshToken,logout } from '../controllers/authController.js';
 import { validate } from '../middleware/validate.js';
 import { arcjetRateLimiter } from '../middleware/arcjetRateLimiter.js';
 import { logInfo, logError } from '../utils/logger.js';
-
+import jwt from 'jsonwebtoken';
+import { User } from '../models/userModel.js';
+import { jwtRefreshSecret } from '../config/env.js';
 const router = express.Router();
 
 // Request logging middleware
@@ -46,11 +50,8 @@ router.post(
 );
 
 // Refresh token route with rate limiting (5 tokens per minute)
-router.post(
-  '/refresh-token',
-  asyncHandler(arcjetRateLimiter(5, '60s')), // 5 requests per minute
-  asyncHandler(refreshToken)
-);
+// POST /auth/refresh-token
+router.post('/refresh-token', asyncHandler(refreshToken));
 
 // Logout route with rate limiting (5 tokens per minute)
 router.post(
@@ -58,6 +59,41 @@ router.post(
   asyncHandler(arcjetRateLimiter(5, '60s')), // 5 requests per minute
   asyncHandler(logout)
 );
+
+
+// GET /api/auth/me
+router.get('/me', async (req, res) => {
+  const refreshToken = req.cookies.refreshToken;
+
+  if (!refreshToken) {
+    return res.status(401).json({ error: 'No session' });
+  }
+
+  try {
+    const decoded = jwt.verify(refreshToken, jwtRefreshSecret);
+    const user = await User.findById(decoded.userId).select('-password');
+    if (!user) return res.status(401).json({ error: 'User not found' });
+
+    return res.json({
+      user: {
+        id: user._id.toString(),
+        name: user.name,
+        email: user.email,
+      },
+    });
+  } catch (err) {
+    // Even if refresh token is invalid → let interceptor handle it later
+    return res.status(401).json({ error: 'Invalid session' });
+  }
+});
+
+router.get('/debug-cookies', (req, res) => {
+  res.json({
+    cookies: req.cookies,
+    hasRefreshToken: !!req.cookies.refreshToken,
+  });
+});
+
 
 // Health check endpoint
 router.get('/health', (req, res) => {

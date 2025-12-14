@@ -14,7 +14,6 @@ function ChatWindow({ friend }) {
   const currentUserId = user?.id;
   const currentFriendId = friend?.id;
 
-
   useEffect(() => {
     if (!currentFriendId || !currentUserId) return;
 
@@ -24,25 +23,58 @@ function ChatWindow({ friend }) {
       try {
         const { data } = await getMessages(currentFriendId);
 
-        const formatted = data.messages
-          .map((msg) => {
-            const id = msg.id || msg.tempId;               
-            if (!id || !msg.userId || !msg.friendId) {
-              console.warn('Skipping malformed historic message:', msg);
-              return null;
-            }
-            return {
-              id,
-              tempId: msg.tempId,          
-              chatId: msg.chatId,
-              userId: msg.userId,
-              friendId: msg.friendId,
-              content: msg.content || '',
-              timestamp: msg.timestamp,
-              isAI: msg.isAI ?? false,
-            };
-          })
-          .filter(Boolean);
+
+      const formatted = data.messages.map((msg) => {
+    // Extract REAL unique ID: MongoDB _id OR tempId (for optimistic)
+    const permanentId = msg._id?.$oid || msg._id || msg.id || msg.tempId;
+    if (!permanentId) {
+      console.warn('Message has no ID at all, skipping:', msg);
+      return null;
+    }
+
+
+    // Normalize userId & friendId (handle ObjectId wrapper)
+    const userId = msg.userId?.$oid || msg.userId;
+    const friendId = msg.friendId?.$oid || msg.friendId;
+
+
+    if (!userId || !friendId) {
+      console.warn('Missing userId or friendId:', msg);
+      return null;
+    }
+
+
+    //  Normalize timestamp
+    let timestamp = msg.timestamp || msg.createdAt || msg.updatedAt;
+    if (timestamp) {
+      if (timestamp.$date) {
+        if (timestamp.$date.$numberLong) {
+          timestamp = new Date(Number(timestamp.$date.$numberLong)).toISOString();
+        } else {
+          timestamp = timestamp.$date;
+        }
+      } else if (typeof timestamp === 'object' && timestamp.$numberLong) {
+        timestamp = new Date(Number(timestamp.$numberLong)).toISOString();
+      }
+    } else {
+      timestamp = new Date().toISOString();
+    }
+
+
+    //  Final clean message object
+    return {
+      id: permanentId,                    // This is the key! Works for DB + temp messages
+      tempId: msg.tempId || undefined,    // Only exists for optimistic/pending
+      chatId: msg.chatId || `${[userId, friendId].sort().join(':')}`,
+      userId,
+      friendId,
+      content: msg.content || '',
+      timestamp,
+      isAI: msg.isAI ?? false,
+    };
+  })
+  .filter(Boolean);
+
 
         setMessages(formatted);
         console.log('Historic messages loaded:', formatted.length);
@@ -72,7 +104,6 @@ function ChatWindow({ friend }) {
       chatId,
     } = newMessage;
 
-    
     const belongs =
       (friendId === currentUserId && userId === currentFriendId) ||
       (userId === currentUserId && friendId === currentFriendId);
@@ -114,7 +145,7 @@ function ChatWindow({ friend }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Send new message 
+  // Send new message
   const handleSendMessage = () => {
     if (!newMessageText.trim()) return;
     if (!currentUserId || !currentFriendId) {
@@ -150,7 +181,7 @@ function ChatWindow({ friend }) {
     setNewMessageText('');
   };
 
-  // Render
+   // Render
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -159,16 +190,11 @@ function ChatWindow({ friend }) {
           {friend?.nickname || friend?.name || 'Unknown'}
         </h3>
       </div>
-
-      {/* Messages */}
       <div className="flex-1 p-4 overflow-y-auto">
-        {wsError && (
-          <p className="text-red-500 mb-4">
-            WebSocket Error: {wsError}. Refresh the page.
-          </p>
+        {loading && <p className="text-gray-500 text-center mb-4">Loading messages…</p>}
+        {messages.length === 0 && !loading && !error && (
+          <p className="text-gray-400 text-center">No messages yet. Say hi!</p>
         )}
-        {loading && <p className="text-gray-500 mb-4">Loading…</p>}
-        {error && <p className="text-red-500 mb-4">{error}</p>}
 
         {messages.map((msg, i) => {
           const isMe = msg.userId === currentUserId;
@@ -181,21 +207,21 @@ function ChatWindow({ friend }) {
           return (
             <div
               key={msg.id || `fallback-${i}`}
-              className={`mb-2 ${isMe ? 'text-right' : 'text-left'}`}
+              className={`mb-4 ${isMe ? 'text-right' : 'text-left'}`}
             >
               <div
-                className={`inline-block p-2 rounded-lg max-w-xs break-words ${
+                className={`inline-block p-3 rounded-2xl max-w-xs break-words shadow-sm ${
                   isMe
                     ? 'bg-green-500 text-white'
                     : msg.isAI
-                    ? 'bg-gray-300 text-black'
+                    ? 'bg-gray-200 text-gray-800'
                     : 'bg-blue-500 text-white'
                 }`}
               >
                 {msg.content}
-                {msg.isAI && <span className="ml-2 text-xs">[AI]</span>}
+                {msg.isAI && <span className="ml-2 text-xs opacity-80">[AI]</span>}
               </div>
-              <div className="text-xs text-gray-500 mt-1">
+              <div className="text-xs text-gray-500 mt-1 px-1">
                 {sender} •{' '}
                 {new Date(msg.timestamp).toLocaleTimeString([], {
                   hour: '2-digit',
@@ -211,21 +237,21 @@ function ChatWindow({ friend }) {
 
       {/* Input */}
       <div className="p-4 bg-white border-t">
-        <div className="flex">
+        <div className="flex gap-2">
           <input
             type="text"
             value={newMessageText}
             onChange={(e) => setNewMessageText(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+            onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
             placeholder={
               !currentUserId || !currentFriendId ? 'Loading…' : 'Type a message…'
             }
-            className="flex-1 p-2 border rounded-l outline-none focus:border-blue-500"
+            className="flex-1 p-3 border rounded-lg outline-none focus:border-blue-500 transition"
             disabled={loading || !currentUserId || !currentFriendId}
           />
           <button
             onClick={handleSendMessage}
-            className="bg-blue-500 text-white p-2 rounded-r hover:bg-blue-600 disabled:bg-gray-400 transition"
+            className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 disabled:bg-gray-400 transition font-medium"
             disabled={
               loading ||
               !currentUserId ||

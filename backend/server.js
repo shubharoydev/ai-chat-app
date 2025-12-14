@@ -8,8 +8,6 @@ import cors from 'cors';
 import { createServer } from 'http';
 import { connectMongoDB } from './config/db.js';
 import { getRedisClient } from './config/redisSetup.js';
-import { publishMessage, publishBatchMessages } from './utils/kafkaProducer.js';
-import { consumeMessages } from './utils/kafkaConsumer.js';
 import { initializeSocket } from './sockets/chatSocket.js';
 import { startMessageBatching } from './workers/messageWorker.js';
 import { logInfo, logError } from './utils/logger.js';
@@ -61,8 +59,8 @@ const startServer = async () => {
     logInfo('Redis connected successfully');
     
     // Explicitly connect Kafka producer
-    await producer.connect();
-    logInfo('Kafka producer ready and connected');
+     await producer.connect();
+     logInfo('Kafka producer ready and connected');
     
     // Subscribe to Kafka topics here if needed
     // Example: await consumeMessages('chat-messages', (message) => {
@@ -70,8 +68,8 @@ const startServer = async () => {
     // });
     logInfo('Kafka consumer initialized successfully');
     
-    await startMessageBatching();
-    logInfo('Message batching started successfully');
+     await startMessageBatching();
+     logInfo('Message batching started successfully');
     
     initializeSocket(server);
     logInfo('Socket.IO initialized successfully');

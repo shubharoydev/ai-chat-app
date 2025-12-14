@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { User } from '../models/userModel.js';
 import ms from 'ms';
-import { getRedisClient } from '../config/redisSetup.js'; 
+import { getRedisClient } from '../config/redisSetup.js';
 import { producer } from '../config/kafka.js';
 import {
   jwtAccessSecret,
@@ -12,7 +12,7 @@ import {
 import {
   signupSchema,
   loginSchema,
-} from '../utils/validator.js'; 
+} from '../utils/validator.js';
 import { createError } from '../utils/errorHandler.js';
 
 // SIGNUP //
@@ -56,21 +56,7 @@ export const signup = async (req, res, next) => {
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
     maxAge: ms(jwtRefreshExpiry),
-    }); 
-
-    await producer.send({
-      topic: 'user-events',
-      messages: [
-        {
-          value: JSON.stringify({
-            event: 'user_signup',
-            userId: user._id,
-            email,
-          }),
-        },
-      ],
     });
-
     res
       .status(201)
       .json({ message: 'User created', user: { id: user._id, name, email } });
@@ -125,9 +111,10 @@ export const login = async (req, res, next) => {
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
       maxAge: ms(jwtAccessExpiry),
-    }); 
+    });
 
-    res.cookie('refreshToken', refreshToken, {     
+
+    res.cookie('refreshToken', refreshToken, {    
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
@@ -157,29 +144,55 @@ export const login = async (req, res, next) => {
 
 export const refreshToken = async (req, res, next) => {
   try {
-    // Get refresh token from cookie (or body as fallback)
     const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
-    if (!refreshToken) throw createError(400, 'Refresh token is required');
-
-    // Verify and decode token
-    const decoded = jwt.verify(refreshToken, jwtRefreshSecret);
-
-    // Check Redis for stored refresh token
-    const redisClient = getRedisClient();
-    const storedToken = await redisClient.get(`refresh:${decoded.userId}`);
-
-    if (!storedToken || storedToken !== refreshToken) {
-      throw createError(401, 'Invalid or expired refresh token');
+    if (!refreshToken) {
+      return next(createError(400, 'Refresh token is required'));
     }
 
-    // Issue new access token (same refresh token)
+
+    //  Verify JWT first (this works even if Redis is dead)
+    let decoded;
+    try {
+      decoded = jwt.verify(refreshToken, jwtRefreshSecret);
+    } catch (err) {
+      return next(createError(401, 'Invalid or expired refresh token'));
+    }
+
+
+    // Try Redis blacklist check — BUT make it NON-BLOCKING
+    let isRevoked = false;
+    try {
+      const redisClient = getRedisClient();
+      if (redisClient.isReady) {
+        const stored = await redisClient.get(`revoked:refresh:${decoded.userId}`);
+        if (stored === 'true') isRevoked = true;
+      }
+      // If Redis is down → we skip this check (security trade-off, but app stays alive)
+    } catch (redisErr) {
+      console.warn('Redis unavailable during token refresh – skipping revocation check', redisErr.message);
+      // Continue anyway — better than crashing entire auth system
+    }
+
+
+    if (isRevoked) {
+      return next(createError(401, 'Refresh token has been revoked'));
+    }
+
+    //  Optional: Validate user still exists in DB
+    const user = await User.findById(decoded.userId);
+    if (!user) {
+      return next(createError(401, 'User not found'));
+    }
+
+    //  Generate new access token
     const newAccessToken = jwt.sign(
       { userId: decoded.userId },
       jwtAccessSecret,
       { expiresIn: jwtAccessExpiry }
     );
 
-    // Update access token cookie
+
+    //  Set new access token cookie
     res.cookie('accessToken', newAccessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -187,17 +200,14 @@ export const refreshToken = async (req, res, next) => {
       maxAge: ms(jwtAccessExpiry),
     });
 
-    // Return new access token
+
     return res.json({
-      message: 'Access token refreshed successfully',
+      message: 'Token refreshed',
       accessToken: newAccessToken,
       userId: decoded.userId,
     });
 
   } catch (error) {
-    if (error instanceof jwt.JsonWebTokenError) {
-      return next(createError(401, 'Invalid refresh token'));
-    }
     next(error);
   }
 };

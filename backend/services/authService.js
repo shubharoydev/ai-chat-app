@@ -1,7 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { User } from '../models/userModel.js';
 import { getRedisClient } from '../config/redisSetup.js';
-import { producer } from '../config/kafka.js';
 import { jwtAccessSecret, jwtRefreshSecret, jwtAccessExpiry, jwtRefreshExpiry } from '../config/env.js';
 import ms from 'ms';
 import { createError } from '../utils/errorHandler.js';
@@ -22,12 +21,6 @@ export const signup = async ({ name, email, password }) => {
   // Store refresh token in Redis
   const redisClient = getRedisClient();
   await redisClient.setWithExpiry(`refresh:${user._id}`, ms(jwtRefreshExpiry) / 1000, refreshToken);
-
-  // Publish user creation event to Kafka
-  await producer.send({
-    topic: 'user-events',
-    messages: [{ value: JSON.stringify({ event: 'user_signup', userId: user._id, email }) }],
-  });
 
   return { user: { id: user._id, name, email }, accessToken, refreshToken };
 };

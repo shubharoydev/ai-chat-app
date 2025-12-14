@@ -34,7 +34,14 @@ export const connectWebSocket = (onMessage, onError) => {
     reconnectAttempts = 0;
     while (messageQueue.length) socket.emit('sendMessage', messageQueue.shift());
   });
-
+  socket.on('token-refreshed', (newAccessToken) => {
+  console.log('[WebSocket] Received fresh accessToken from server');
+  
+  // Update the cookie so future HTTP requests work without refresh
+  document.cookie = `accessToken=${newAccessToken}; path=/; SameSite=Lax; ${
+    import.meta.env.PROD ? 'Secure;' : ''
+  }`;
+  });
   socket.on('reconnect_attempt', (attemptNumber) => {
     console.log(`[WebSocket] Reconnection attempt ${attemptNumber}...`);
   });

@@ -13,8 +13,8 @@ export const authMiddleware = async (req, res, next) => {
     // Only use cookies for tokens (fully cookie-based)
     const accessToken = req.cookies.accessToken;
     const refreshToken = req.cookies.refreshToken;
-   console.log('Cookies:', req.cookies);
-   console.log('AccessToken:', req.cookies?.accessToken);
+    console.log('Cookies:', req.cookies);
+    console.log('AccessToken:', req.cookies?.accessToken);
 
     if (!accessToken) throw createError(401, 'Access token missing');
 
@@ -50,7 +50,7 @@ export const authMiddleware = async (req, res, next) => {
       res.cookie('accessToken', newAccessToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
+        sameSite: 'lax',
         maxAge: ms(jwtAccessExpiry),
       });
 

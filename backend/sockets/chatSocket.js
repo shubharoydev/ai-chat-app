@@ -6,7 +6,9 @@ import { getRedisClient } from '../config/redisSetup.js';
 import { logInfo, logError } from '../utils/logger.js';
 import { createError } from '../utils/errorHandler.js';
 import cookie from 'cookie';
-
+import jwt from "jsonwebtoken";
+import { jwtAccessSecret,jwtRefreshSecret,jwtAccessExpiry} from '../config/env.js';
+import {User} from "../models/userModel.js";
 let io;
 
 export const initializeSocket = (server) => {
@@ -27,46 +29,65 @@ export const initializeSocket = (server) => {
     throw error;
   }
 
-  io.use(async (socket, next) => {
-    try {
-      const cookies = socket.handshake.headers.cookie
-        ? cookie.parse(socket.handshake.headers.cookie)
-        : {};
-      const token = cookies.accessToken;
+io.use(async (socket, next) => {
+  try {
+    const cookies = socket.handshake.headers.cookie
+      ? cookie.parse(socket.handshake.headers.cookie)
+      : {};
 
-      console.log("Parsed cookies:", cookies);
-      console.log("Access token from cookie:", token ? "exists" : "missing");
+    let accessToken = cookies.accessToken;
 
-      if (!token) {
-        throw createError(401, "No access token provided");
+    // Try accessToken first
+    if (accessToken) {
+      try {
+        const decoded = jwt.verify(accessToken, jwtAccessSecret);
+        socket.user = { userId: decoded.userId };
+        return next();
+      } catch (err) {
+        console.log("Access token expired, trying refresh...");
       }
-
-      const decoded = verifyAccessToken(token);
-      socket.user = { userId: decoded.userId };
-
-      const redisClient = getRedisClient();
-      // await redisClient.set(
-      //   `user:online:${socket.user.userId}`,
-      //   "true",
-      //   "EX",
-      //   60
-      // );
-
-      logInfo("Socket authenticated", {
-        userId: socket.user.userId,
-        socketId: socket.id,
-      });
-
-      next();
-    } catch (error) {
-      logError("Socket authentication failed", {
-        error: error.message,
-        socketId: socket?.id,
-      });
-      next(error);
     }
-  });
 
+    // Use refreshToken
+    const refreshToken = cookies.refreshToken;
+    if (!refreshToken) {
+      return next(createError(401, "No session"));
+    }
+
+    const decoded = jwt.verify(refreshToken, jwtRefreshSecret);
+
+    // Critical: Check Redis
+    const redisClient = getRedisClient();
+    const stored = await redisClient.get(`refresh:${decoded.userId}`);
+    if (stored !== refreshToken) {
+      return next(createError(401, "Invalid refresh token"));
+    }
+
+    const user = await User.findById(decoded.userId);
+    if (!user) return next(createError(401, "User not found"));
+
+    const newAccessToken = jwt.sign(
+      { userId: user._id },
+      jwtAccessSecret,
+      { expiresIn: jwtAccessExpiry }
+    );
+
+    socket.user = { userId: user._id.toString() };
+
+    // Send token to frontend
+    socket.emit('access-token-refreshed', newAccessToken);
+
+    logInfo("WebSocket authenticated via refresh token", {
+      userId: socket.user.userId,
+      socketId: socket.id,
+    });
+
+    next();
+  } catch (err) {
+    logError("Socket auth failed", { error: err.message });
+    next(err);
+  }
+});
   io.on('connection', (socket) => {
     const userId = socket.user.userId;
     logInfo('User connected', { userId });

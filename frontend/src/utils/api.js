@@ -5,6 +5,7 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
 });
+let isRefreshing = false;
 
 api.interceptors.request.use(
   (config) => {
@@ -22,35 +23,33 @@ api.interceptors.request.use(
 );
 
 api.interceptors.response.use(
-  (response) => {
-    console.debug(`[API] Response: ${response.config.method.toUpperCase()} ${response.config.url}`, {
-      status: response.status,
-      data: response.data
-    });
-    return response;
-  },
+  (response) => response,
   async (err) => {
     const orig = err.config;
-    
-    console.error('[API] Response error:', {
-      url: orig?.url,
-      method: orig?.method,
-      status: err.response?.status,
-      data: err.response?.data
-    });
+    if (
+      err.response?.status === 401 &&
+      !orig?._retry &&
+      !orig?.url?.includes('/api/auth/refresh-token')
+    ) {
+      if (isRefreshing) {
+        return Promise.reject(err);
+      }
 
-    if (err.response?.status === 401 && !orig._retry) {
-      console.log('[API] 401 Unauthorized, attempting token refresh...');
       orig._retry = true;
+      isRefreshing = true;
+
       try {
-        console.log('[API] Refreshing access token...');
-        await api.post('/auth/refresh-token');
-        console.log('[API] Token refresh successful, retrying original request');
-        return api(orig);
-      } catch (refreshError) {
-        console.error('[API] Token refresh failed:', refreshError);
-        console.log('[API] Redirecting to login page');
-        window.location.href = '/login';
+        await api.post('/api/auth/refresh-token'); // try to refresh
+        isRefreshing = false;
+        return api(orig); // retry original request
+      } catch (refreshErr) {
+        isRefreshing = false;
+
+        // Refresh failed → ONLY redirect once
+        if (!window.location.pathname.includes('/login')) {
+          window.location.href = '/login';
+        }
+        return Promise.reject(refreshErr);
       }
     }
     return Promise.reject(err);
@@ -85,6 +84,13 @@ export const getFriends = () => {
 export const getMessages = (friendId, page = 1, limit = 20) => {
   console.log(`[API] Fetching messages for friend ${friendId}`, { page, limit });
   return api.get(`/api/chat/messages/${friendId}?page=${page}&limit=${limit}`);
+};
+
+export const searchFriends = (query) => {
+  console.log('[API] Searching users:', { query });
+  return api.get('/api/users/search', {
+    params: { query }
+  });
 };
 
 export default api;

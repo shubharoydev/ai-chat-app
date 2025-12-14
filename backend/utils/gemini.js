@@ -5,6 +5,7 @@ import { GEMINI_API_KEY } from '../config/env.js';
 export const getGeminiResponse = async (query) => {
   const preprompt = "Reply concisely (100–150 words max). Be direct and informative.\n\nUser: ";
 const models = [
+  'gemini-2.5-flash',
   'gemini-2.0-flash',
   'gemini-2.0-pro',
   'gemini-1.5-pro-002',

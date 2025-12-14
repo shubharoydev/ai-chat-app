@@ -34,22 +34,6 @@ export const addFriend = async (userId, email, nickname = null) => {
     createFriend(friendId, userId, null) // Optionally allow B to set nickname later
   ]);
 
-  // Notify both users
-  await Promise.all([
-    publishMessage('friend-events', {
-      event: 'friend_added',
-      userId,
-      friendId,
-      email: friend.email
-    }),
-    publishMessage('friend-events', {
-      event: 'friend_added',
-      userId: friendId,
-      friendId: userId,
-      email: (await User.findById(userId)).email
-    })
-  ]);
-
   return {
     friend: {
       id: friendId,
