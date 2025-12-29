@@ -20,7 +20,7 @@ export const publishMessage = async (topic, message) => {
     await ensureProducerConnected();
     await producer.send({
       topic,
-      messages: [{ key: message.id || Date.now().toString(), value: JSON.stringify(message) }],
+      messages: [{ key: message.messageId || Date.now().toString(), value: JSON.stringify(message) }],
     });
   } catch (err) {
     console.error('Kafka message publish failed:', err);
@@ -34,7 +34,7 @@ export const publishBatchMessages = async (topic, messages) => {
     await producer.send({
       topic,
       messages: messages.map(msg => ({
-        key: msg.id || Date.now().toString(),
+        key: msg.messageId || Date.now().toString(),
         value: JSON.stringify(msg),
       })),
     });

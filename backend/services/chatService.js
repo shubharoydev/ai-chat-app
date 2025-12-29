@@ -33,7 +33,8 @@ export const sendMessage = async (userId, friendId, content, clientTempId) => {
   const redisKey = `chat:recent:${chatId}`;
 
   const message = {
-    tempId,
+    messageId: uuidv4(),
+    tempId, // keep tempId for frontend optimistic match only
     chatId,
     userId,
     friendId,
@@ -53,9 +54,14 @@ export const sendMessage = async (userId, friendId, content, clientTempId) => {
     const query = content.slice(4).trim();
     if (!query) throw createError(400, "AI query cannot be empty");
 
-    // Save user message
-    await redisClient.lpush(redisKey, JSON.stringify(message));
-    await redisClient.expire(redisKey, 7 * 24 * 3600);
+    // Save user message (Try-Catch to avoid blocking logic if Redis is down)
+    try {
+      await redisClient.lpush(redisKey, JSON.stringify(message));
+      await redisClient.expire(redisKey, 7 * 24 * 3600);
+    } catch (redisErr) {
+      logError('Redis write failed (AI-UserMsg), proceeding...', { error: redisErr.message });
+      message.redisWriteFailed = true;
+    }
 
     // publish to kafka
     try {
@@ -72,7 +78,8 @@ export const sendMessage = async (userId, friendId, content, clientTempId) => {
     //  Generate AI response
     const aiResponse = await getGeminiResponse(query);
     const aiMessage = {
-      tempId: uuidv4(),
+      messageId: uuidv4(),
+      tempId,
       chatId,
       userId,
       friendId,
@@ -86,8 +93,13 @@ export const sendMessage = async (userId, friendId, content, clientTempId) => {
     io.to(friendId).emit("receiveMessage", aiMessage);
 
     // save AI message in same redis key
-    await redisClient.lpush(redisKey, JSON.stringify(aiMessage));
-    await redisClient.expire(redisKey, 7 * 24 * 3600);
+    try {
+      await redisClient.lpush(redisKey, JSON.stringify(aiMessage));
+      await redisClient.expire(redisKey, 7 * 24 * 3600);
+    } catch (redisErr) {
+      logError('Redis write failed (AI-Response), proceeding...', { error: redisErr.message });
+      aiMessage.redisWriteFailed = true;
+    }
 
     try {
       await asyncRetry(() => publishToKafka(aiMessage), {
@@ -104,8 +116,13 @@ export const sendMessage = async (userId, friendId, content, clientTempId) => {
   }
 
   // Normal messages
-  await redisClient.lpush(redisKey, JSON.stringify(message));
-  await redisClient.expire(redisKey, 7 * 24 * 3600);
+  try {
+    await redisClient.lpush(redisKey, JSON.stringify(message));
+    await redisClient.expire(redisKey, 7 * 24 * 3600);
+  } catch (redisErr) {
+    logError('Redis write failed (Normal), proceeding...', { error: redisErr.message });
+    message.redisWriteFailed = true;
+  }
 
   try {
     await asyncRetry(() => publishToKafka(message), {
@@ -215,7 +232,7 @@ export const retryFailedMessages = async () => {
 
           await redisClient.lrem(key, 1, JSON.stringify(msg));
         } catch (error) {
-          logError('❌ Retry failed', { error: error.message, messageId: msg.id });
+          logError('❌ Retry failed', { error: error.message, messageId: msg.messageId });
         }
       }
     }

@@ -16,6 +16,10 @@ const messageSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
     },
+    messageId: {
+      type: String,
+      required: true,
+    },
     isAI: { type: Boolean,
     default: false 
     },
@@ -40,6 +44,7 @@ const messageSchema = new mongoose.Schema(
 
 // Index for efficient chat history retrieval
 messageSchema.index({ chatId: 1, timestamp: -1 });
+messageSchema.index({ messageId: 1 }, { unique: true });
 
 export const Message = mongoose.model('Message', messageSchema);
 

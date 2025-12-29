@@ -12,20 +12,25 @@ let consumer;
   }
 })();
 
-export const consumeMessages = async (topic, callback) => {
+export const consumeBatch = async (topic, batchCallback) => {
   if (!consumer) throw createError(500, 'Kafka consumer not initialized');
 
   try {
     await consumer.subscribe({ topic, fromBeginning: false });
     await consumer.run({
-      eachMessage: async ({ topic, partition, message }) => {
+      autoCommit: false,
+      eachBatch: async ({ batch, resolveOffset, heartbeat, commitOffsetsIfNecessary }) => {
+        const messages = batch.messages;
+        console.log(`Received batch: ${messages.length} messages`);
+
         try {
-          const value = message.value ? JSON.parse(message.value.toString()) : null;
-          if (value) await callback(value);
+          // Pass the raw messages + helpers to the worker callback
+          await batchCallback(messages, resolveOffset, heartbeat);
         } catch (err) {
-          console.error(`Error in topic ${topic}:`, err);
-          throw createError(500, `Failed to process message in ${topic}`, err);
+          console.error(`Error processing batch in ${topic}:`, err);
         }
+
+        await commitOffsetsIfNecessary();
       },
     });
   } catch (err) {

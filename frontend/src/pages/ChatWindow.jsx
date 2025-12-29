@@ -24,56 +24,60 @@ function ChatWindow({ friend }) {
         const { data } = await getMessages(currentFriendId);
 
 
-      const formatted = data.messages.map((msg) => {
-    // Extract REAL unique ID: MongoDB _id OR tempId (for optimistic)
-    const permanentId = msg._id?.$oid || msg._id || msg.id || msg.tempId;
-    if (!permanentId) {
-      console.warn('Message has no ID at all, skipping:', msg);
-      return null;
-    }
+        const formatted = data.messages.map((msg) => {
+          // Extract REAL unique ID: MongoDB _id OR tempId (for optimistic)
+          const permanentId = msg._id?.$oid || msg._id || msg.id || msg.tempId;
+          if (!permanentId) {
+            console.warn('Message has no ID at all, skipping:', msg);
+            return null;
+          }
 
 
-    // Normalize userId & friendId (handle ObjectId wrapper)
-    const userId = msg.userId?.$oid || msg.userId;
-    const friendId = msg.friendId?.$oid || msg.friendId;
+          // Normalize userId & friendId (handle ObjectId wrapper)
+          const userId = msg.userId?.$oid || msg.userId;
+          const friendId = msg.friendId?.$oid || msg.friendId;
 
 
-    if (!userId || !friendId) {
-      console.warn('Missing userId or friendId:', msg);
-      return null;
-    }
+          if (!userId || !friendId) {
+            console.warn('Missing userId or friendId:', msg);
+            return null;
+          }
 
 
-    //  Normalize timestamp
-    let timestamp = msg.timestamp || msg.createdAt || msg.updatedAt;
-    if (timestamp) {
-      if (timestamp.$date) {
-        if (timestamp.$date.$numberLong) {
-          timestamp = new Date(Number(timestamp.$date.$numberLong)).toISOString();
-        } else {
-          timestamp = timestamp.$date;
-        }
-      } else if (typeof timestamp === 'object' && timestamp.$numberLong) {
-        timestamp = new Date(Number(timestamp.$numberLong)).toISOString();
-      }
-    } else {
-      timestamp = new Date().toISOString();
-    }
+          //  Normalize timestamp
+          let timestamp = msg.timestamp || msg.createdAt || msg.updatedAt;
+          if (timestamp) {
+            if (timestamp.$date) {
+              if (timestamp.$date.$numberLong) {
+                timestamp = new Date(Number(timestamp.$date.$numberLong)).toISOString();
+              } else {
+                timestamp = timestamp.$date;
+              }
+            } else if (typeof timestamp === 'object' && timestamp.$numberLong) {
+              timestamp = new Date(Number(timestamp.$numberLong)).toISOString();
+            }
+          } else {
+            timestamp = new Date().toISOString();
+          }
 
 
-    //  Final clean message object
-    return {
-      id: permanentId,                    // This is the key! Works for DB + temp messages
-      tempId: msg.tempId || undefined,    // Only exists for optimistic/pending
-      chatId: msg.chatId || `${[userId, friendId].sort().join(':')}`,
-      userId,
-      friendId,
-      content: msg.content || '',
-      timestamp,
-      isAI: msg.isAI ?? false,
-    };
-  })
-  .filter(Boolean);
+          //  Final clean message object
+          return {
+            id: permanentId,                    // This is the key! Works for DB + temp messages
+            messageId: msg.messageId || undefined,
+            tempId: msg.tempId || undefined,    // Only exists for optimistic/pending
+            chatId: msg.chatId || `${[userId, friendId].sort().join(':')}`,
+            userId,
+            friendId,
+            content: msg.content || '',
+            timestamp,
+            isAI: msg.isAI ?? false,
+          };
+        })
+          .filter(Boolean)
+          .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+        setMessages(formatted);
 
 
         setMessages(formatted);
@@ -111,18 +115,25 @@ function ChatWindow({ friend }) {
     if (!belongs) return;
 
     setMessages((prev) => {
-      // Server confirmed a temp message → swap id
-      if (tempId && !isAI && prev.some((m) => m.tempId === tempId)) {
-        console.log(`Replacing tempId ${tempId} → real id ${id}`);
+      // Server confirmed a temp message → swap id (using messageId from server)
+      // Check if this new message has a tempId that matches one of our local ones
+      if (tempId && prev.some((m) => m.tempId === tempId)) {
+        console.log(`Replacing tempId ${tempId} → real messageId ${id || newMessage.messageId}`);
         return prev.map((m) =>
-          m.tempId === tempId ? { ...m, id, tempId: undefined } : m
+          m.tempId === tempId
+            ? { ...m, id: id || newMessage.messageId, messageId: newMessage.messageId, tempId: undefined }
+            : m
         );
       }
 
-      //  Brand-new confirmed message
-      if (id && !prev.some((m) => m.id === id)) {
+      //  Brand-new confirmed message (not in our list)
+      // Ensure we use messageId if available
+      const uniqueId = id || newMessage.messageId;
+
+      if (uniqueId && !prev.some((m) => m.id === uniqueId || m.messageId === uniqueId)) {
         const msg = {
-          id,
+          id: uniqueId,
+          messageId: newMessage.messageId,
           tempId,
           chatId: chatId || [userId, friendId].sort().join(':'),
           userId,
@@ -181,7 +192,7 @@ function ChatWindow({ friend }) {
     setNewMessageText('');
   };
 
-   // Render
+  // Render
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -201,8 +212,8 @@ function ChatWindow({ friend }) {
           const sender = isMe
             ? 'You'
             : msg.isAI
-            ? 'AI'
-            : friend?.nickname || friend?.name || 'Friend';
+              ? 'AI'
+              : friend?.nickname || friend?.name || 'Friend';
 
           return (
             <div
@@ -210,13 +221,12 @@ function ChatWindow({ friend }) {
               className={`mb-4 ${isMe ? 'text-right' : 'text-left'}`}
             >
               <div
-                className={`inline-block p-3 rounded-2xl max-w-xs break-words shadow-sm ${
-                  isMe
-                    ? 'bg-green-500 text-white'
-                    : msg.isAI
+                className={`inline-block p-3 rounded-2xl max-w-xs break-words shadow-sm ${isMe
+                  ? 'bg-green-500 text-white'
+                  : msg.isAI
                     ? 'bg-gray-200 text-gray-800'
                     : 'bg-blue-500 text-white'
-                }`}
+                  }`}
               >
                 {msg.content}
                 {msg.isAI && <span className="ml-2 text-xs opacity-80">[AI]</span>}

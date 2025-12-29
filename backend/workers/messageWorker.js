@@ -1,70 +1,89 @@
-import { connectKafkaConsumer } from '../config/kafka.js';
+import { consumeBatch } from '../utils/kafkaConsumer.js';
 import { Message } from '../models/messageModel.js';
-import { getRedisClient } from '../config/redisSetup.js';
 import { logInfo, logError } from '../utils/logger.js';
-
-let messageBuffer = [];
-const BATCH_INTERVAL_MS = 5 * 60 * 1000; // 5 min
 
 export const startMessageBatching = async () => {
   try {
-    const consumer = await connectKafkaConsumer('chat-consumer-group');
-    await consumer.subscribe({ topic: 'chat-messages-persist', fromBeginning: false });
+    logInfo('Starting message batch worker...');
 
-    await consumer.run({
-      eachMessage: async ({ message }) => {
-        try {
-          const parsed = JSON.parse(message.value.toString());
-          messageBuffer.push(parsed);
+    const messageBuffer = [];
+    let lastFlushTime = Date.now();
+    const FLUSH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
-          logInfo('📥 Message received from Kafka', { messageId: parsed.id, chatId: parsed.chatId });
-        } catch (err) {
-          logError('❌ Failed to parse Kafka message', { error: err.message });
-        }
-      },
-    });
-
-    // ✅ Process batches
-    setInterval(async () => {
+    const flushToMongo = async () => {
       if (!messageBuffer.length) return;
 
-      const toInsert = [...messageBuffer];
-      messageBuffer = [];
+      logInfo('Flushing messages to MongoDB...', {
+        count: messageBuffer.length,
+      });
+
+      const bulkOps = messageBuffer.map(({ data }) => ({
+        updateOne: {
+          filter: { messageId: data.messageId },
+          update: {
+            $setOnInsert: {
+              chatId: data.chatId,
+              userId: data.userId,
+              friendId: data.friendId,
+              content: data.content,
+              timestamp: new Date(data.timestamp),
+              isAI: data.isAI ?? false,
+              messageId: data.messageId,
+            },
+          },
+          upsert: true,
+        },
+      }));
 
       try {
-
-        const bulkOps = toInsert.map(msg => ({
-         updateOne: {
-         filter: { chatId: msg.chatId, timestamp: msg.timestamp, userId: msg.userId },
-             update: {
-             $setOnInsert: {
-        chatId: msg.chatId,
-        userId: msg.userId,
-        friendId: msg.friendId,
-        content: msg.content,
-        timestamp: new Date(msg.timestamp),
-        isAI: msg.isAI ?? false,
-      },
-    },
-    upsert: true, // ✅ prevents duplicates
-  },
-}));
-
-
         await Message.bulkWrite(bulkOps, { ordered: false });
-        logInfo('✅ Batch persisted to MongoDB', { count: bulkOps.length });
-      } catch (error) {
-        logError('❌ MongoDB batch insert failed', { error: error.message });
-        messageBuffer.push(...toInsert); // retry next cycle
-      }
-    }, BATCH_INTERVAL_MS);
 
-    process.on('SIGTERM', async () => {
-      await consumer.disconnect();
-      process.exit(0);
+        // Commit Kafka offsets ONLY after DB success
+        for (const { kafkaMsg, resolveOffset } of messageBuffer) {
+          resolveOffset(kafkaMsg.offset);
+        }
+
+        messageBuffer.length = 0;
+        lastFlushTime = Date.now();
+
+        logInfo('MongoDB bulkWrite completed');
+      } catch (err) {
+        logError('MongoDB bulkWrite failed', { error: err.message });
+        // DO NOT clear buffer → Kafka will retry
+      }
+    };
+
+    // Flush every 5 minutes
+    setInterval(flushToMongo, FLUSH_INTERVAL);
+
+    await consumeBatch('chat-messages-persist', async (kafkaMessages, resolveOffset, heartbeat) => {
+      if (!kafkaMessages.length) return;
+
+      for (const msg of kafkaMessages) {
+        try {
+          const parsed = JSON.parse(msg.value.toString());
+
+          if (!parsed.messageId) {
+            console.warn('Skipping message without messageId', { parsed });
+            resolveOffset(msg.offset);
+            continue;
+          }
+
+          messageBuffer.push({
+            kafkaMsg: msg,
+            data: parsed,
+            resolveOffset,
+          });
+        } catch (err) {
+          logError('Failed to parse Kafka message', { error: err.message });
+          resolveOffset(msg.offset); 
+        }
+      }
+
+      await heartbeat();
     });
   } catch (error) {
-    logError('❌ Failed to start batching', { error: error.message });
+    logError('Failed to start batching', { error: error.message });
     throw error;
   }
 };
