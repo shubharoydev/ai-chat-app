@@ -33,7 +33,7 @@ jobs:
         run: cd frontend && npm ci
 
       - name: Frontend - Test
-        run: cd frontend && npm test -- --coverage
+        run: cd frontend && npm test
 
       - name: Frontend - Build
         run: cd frontend && npm run build
