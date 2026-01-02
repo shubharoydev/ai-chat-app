@@ -75,8 +75,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/backend:${{ steps.version.outputs.VERSION }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/backend:latest
+           shubha69/ai_chatapp-backend:${{ steps.version.outputs.VERSION }}
+           shubha69/ai_chatapp-backend:latest
 
       # Frontend Image
       - name: Build & Push Frontend
@@ -87,5 +87,5 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/frontend:${{ steps.version.outputs.VERSION }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/frontend:latest
+            shubha69/ai_chatapp-frontend:${{ steps.version.outputs.VERSION }}
+            shubha69/ai_chatapp-frontend:latest
