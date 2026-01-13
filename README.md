@@ -214,8 +214,8 @@ Built to support **high-traffic**, **multi-user**, **distributed environments**.
 
 Your frontend & backend are pulled from:
 
-* **Frontend** → `shubha69/ai_chatapp-frontend:v1`
-* **Backend** → `shubha69/ai_chatapp-backend:v1`
+* **Frontend** → `shubha69/ai_chatapp-frontend:latest`
+* **Backend** → `shubha69/ai_chatapp-backend:latest`
 
 # Folder Structure
 
@@ -242,36 +242,45 @@ services:
       - "2181:2181"
     networks:
       - kafka-net
+    volumes:
+      - zk1-data:/var/lib/zookeeper/data
+      - zk1-log:/var/lib/zookeeper/log
 
   zookeeper2:
     image: confluentinc/cp-zookeeper:7.6.0
     hostname: zookeeper2
     environment:
       ZOOKEEPER_SERVER_ID: 2
-      ZOOKEEPER_CLIENT_PORT: 2182
+      ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
       ZOOKEEPER_SERVERS: zookeeper1:2888:3888;zookeeper2:2888:3888;zookeeper3:2888:3888
     ports:
-      - "2182:2182"
+      - "2182:2181"
     networks:
       - kafka-net
+    volumes:
+      - zk2-data:/var/lib/zookeeper/data
+      - zk2-log:/var/lib/zookeeper/log
 
   zookeeper3:
     image: confluentinc/cp-zookeeper:7.6.0
     hostname: zookeeper3
     environment:
       ZOOKEEPER_SERVER_ID: 3
-      ZOOKEEPER_CLIENT_PORT: 2183
+      ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
       ZOOKEEPER_SERVERS: zookeeper1:2888:3888;zookeeper2:2888:3888;zookeeper3:2888:3888
     ports:
-      - "2183:2183"
+      - "2183:2181"
     networks:
       - kafka-net
+    volumes:
+      - zk3-data:/var/lib/zookeeper/data
+      - zk3-log:/var/lib/zookeeper/log
 
-  kafka:
+  kafka1:
     image: confluentinc/cp-kafka:7.6.0
-    hostname: kafka
+    hostname: kafka1
     depends_on:
       - zookeeper1
       - zookeeper2
@@ -280,17 +289,21 @@ services:
       - "9092:9092"
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper1:2181,zookeeper2:2182,zookeeper3:2183
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper1:2181,zookeeper2:2181,zookeeper3:2181
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,INTERNAL://0.0.0.0:29092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,INTERNAL://kafka:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,INTERNAL://kafka1:29092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
       KAFKA_NUM_PARTITIONS: 3
-      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
     networks:
       - kafka-net
+    volumes:
+      - kafka1-data:/var/lib/kafka/data
 
   kafka2:
     image: confluentinc/cp-kafka:7.6.0
@@ -303,17 +316,21 @@ services:
       - "9093:9093"
     environment:
       KAFKA_BROKER_ID: 2
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper1:2181,zookeeper2:2182,zookeeper3:2183
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper1:2181,zookeeper2:2181,zookeeper3:2181
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9093,INTERNAL://0.0.0.0:29093
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9093,INTERNAL://kafka2:29093
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
       KAFKA_NUM_PARTITIONS: 3
-      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
     networks:
       - kafka-net
+    volumes:
+      - kafka2-data:/var/lib/kafka/data
 
   kafka3:
     image: confluentinc/cp-kafka:7.6.0
@@ -326,22 +343,26 @@ services:
       - "9094:9094"
     environment:
       KAFKA_BROKER_ID: 3
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper1:2181,zookeeper2:2182,zookeeper3:2183
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper1:2181,zookeeper2:2181,zookeeper3:2181
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9094,INTERNAL://0.0.0.0:29094
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9094,INTERNAL://kafka3:29094
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
       KAFKA_NUM_PARTITIONS: 3
-      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
     networks:
       - kafka-net
+    volumes:
+      - kafka3-data:/var/lib/kafka/data
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     depends_on:
-      - kafka
+      - kafka1
       - kafka2
       - kafka3
     ports:
@@ -349,12 +370,12 @@ services:
     environment:
       DYNAMIC_CONFIG_ENABLED: "true"
       KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092,kafka2:29093,kafka3:29094
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka1:29092,kafka2:29093,kafka3:29094
     networks:
       - kafka-net
 
   backend:
-    image: shubha69/ai_chatapp-backend:v1
+    image: shubha69/ai_chatapp-backend:latest
     container_name: my-backend
     ports:
       - "${PORT}:3000"
@@ -375,20 +396,15 @@ services:
       ARCJET_ENV: ${ARCJET_ENV}
       ARCJET_KEY: ${ARCJET_KEY}
     depends_on:
-      - kafka
+      - kafka1
       - kafka2
       - kafka3
     networks:
       - kafka-net
 
   frontend:
-    image: shubha69/ai_chatapp-frontend:v1
+    image: shubha69/ai_chatapp-frontend:latest
     container_name: my-frontend
-    env_file:
-      - ./.env
-    environment:
-     VITE_API_URL: ${VITE_API_URL}
-     VITE_WS_URL: ${VITE_WS_URL}
     ports:
       - "5173:80"
     depends_on:
@@ -398,7 +414,18 @@ services:
 
 networks:
   kafka-net:
-    driver: bridge 
+    driver: bridge
+
+volumes:
+  zk1-data:
+  zk1-log:
+  zk2-data:
+  zk2-log:
+  zk3-data:
+  zk3-log:
+  kafka1-data:
+  kafka2-data:
+  kafka3-data:
 ````
 
 ---
@@ -406,10 +433,10 @@ networks:
 # .env file
 
 ```env
-MONGODB_URI=
-REDIS_URL=
-GEMINI_API_KEY=
-CLIENT_ORIGIN=
+MONGODB_URI=YOUR_MONGODB_URI
+REDIS_URL=YOUR_REDIS_URL
+GEMINI_API_KEY=YOUR_GEMINI_API_KEY
+CLIENT_ORIGIN=http://localhost:5173
 PORT=3000
 
 #Kafka 
@@ -417,14 +444,14 @@ KAFKA_CLIENT_ID=chat-app
 KAFKA_BROKERS=kafka:29092,kafka2:29093,kafka3:29094
 
 # JWT
-JWT_ACCESS_SECRET=
-JWT_REFRESH_SECRET=
+JWT_ACCESS_SECRET=YOUR_JWT_ACCESS_SECRET
+JWT_REFRESH_SECRET=YOUR_JWT_REFRESH_SECRET
 JWT_ACCESS_EXPIRY=15m
 JWT_REFRESH_EXPIRY=28d
 
 # Arcjet 
-ARCJET_ENV=
-ARCJET_KEY=
+ARCJET_ENV=development
+ARCJET_KEY=YOUR_ARCJET_KEY
 
 
 VITE_API_URL=http://localhost:3000
