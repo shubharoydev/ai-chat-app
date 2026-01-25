@@ -1,5 +1,6 @@
 import { useState, useEffect, useContext } from 'react';
 import { getFriends, addFriend } from '../utils/api';
+import { checkOnlineStatus, emitHeartbeat, subscribeToStatusUpdates } from '../utils/WebSocket';
 import { UserContext } from '../context/UserContext';
 import { useNavigate } from 'react-router-dom';
 import toast, { Toaster } from 'react-hot-toast';
@@ -8,7 +9,8 @@ function FriendList({ onSelectFriend }) {
   const { user } = useContext(UserContext);
   const [friends, setFriends] = useState([]);
   const [error, setError] = useState('');
-  
+  const [onlineUsers, setOnlineUsers] = useState(new Set());
+
   // Search State
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -27,11 +29,11 @@ function FriendList({ onSelectFriend }) {
         const { data } = await getFriends();
         const formattedFriends = Array.isArray(data.friends)
           ? data.friends.map((friend) => ({
-              id: friend.id,
-              name: friend.name,
-              nickname: friend.nickname,
-              email: friend.email,
-            }))
+            id: friend.id,
+            name: friend.name,
+            nickname: friend.nickname,
+            email: friend.email,
+          }))
           : [];
         setFriends(formattedFriends);
       } catch (err) {
@@ -44,6 +46,32 @@ function FriendList({ onSelectFriend }) {
 
     fetchFriends();
   }, []);
+
+  useEffect(() => {
+  const check = async () => {
+    emitHeartbeat();
+    if (!friends.length) return;
+
+    const online = await checkOnlineStatus(friends.map(f => f.id));
+    setOnlineUsers(new Set(online));
+  };
+
+  check();
+  const interval = setInterval(check, 10000);
+
+  const unsubscribe = subscribeToStatusUpdates(({ userId, status }) => {
+    setOnlineUsers(prev => {
+      const next = new Set(prev);
+      status === 'online' ? next.add(userId) : next.delete(userId);
+      return next;
+    });
+  });
+
+  return () => {
+    clearInterval(interval);
+    unsubscribe?.();
+  };
+}, [friends]);
 
   //  Add new friend
   const handleAddFriend = async () => {
@@ -114,7 +142,7 @@ function FriendList({ onSelectFriend }) {
   return (
     <div className="p-4 bg-white rounded-lg shadow-md w-full md:w-80 lg:w-96 h-full overflow-y-auto flex flex-col">
       <Toaster position="top-right" reverseOrder={false} />
-      
+
       <h3 className="text-lg font-semibold text-gray-800 mb-4">
         Friends
       </h3>
@@ -123,17 +151,17 @@ function FriendList({ onSelectFriend }) {
       <div className="relative mb-3">
         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
           {/* Search Icon SVG */}
-          <svg 
-            className="h-5 w-5 text-gray-400" 
-            xmlns="http://www.w3.org/2000/svg" 
-            viewBox="0 0 20 20" 
-            fill="currentColor" 
+          <svg
+            className="h-5 w-5 text-gray-400"
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 20 20"
+            fill="currentColor"
             aria-hidden="true"
           >
-            <path 
-              fillRule="evenodd" 
-              d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" 
-              clipRule="evenodd" 
+            <path
+              fillRule="evenodd"
+              d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
+              clipRule="evenodd"
             />
           </svg>
         </div>
@@ -166,8 +194,27 @@ function FriendList({ onSelectFriend }) {
               className="p-3 hover:bg-gray-100 rounded-lg cursor-pointer flex justify-between items-center transition-colors duration-200"
             >
               <div className="flex flex-col">
-                <span className="text-sm font-medium text-gray-800">
+                <span className="text-sm font-medium text-gray-800 flex items-center">
                   {friend.nickname || friend.name || 'Unknown Friend'}
+                  {onlineUsers.has(friend.id) && (
+                    <span className="ml-2 text-green-700" title="Online">
+<svg
+  className="w-3 h-3 text-white bg-green-500 rounded-full p-1"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <path
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    strokeWidth="2"
+    d="M5 13l4 4L19 7"
+  />
+</svg>
+
+                    </span>
+                  )}
                 </span>
                 <span className="text-xs text-gray-500">{friend.email}</span>
               </div>
@@ -192,7 +239,7 @@ function FriendList({ onSelectFriend }) {
 
       {/* Add Friend Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex justify-center items-center z-50">
           <div className="bg-white p-6 rounded-lg w-80 relative">
             <h4 className="text-lg font-semibold mb-4">Add Friend</h4>
             <input

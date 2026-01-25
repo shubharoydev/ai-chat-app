@@ -208,7 +208,7 @@ function ChatWindow({ friend }) {
         )}
 
         {messages.map((msg, i) => {
-          const isMe = msg.userId === currentUserId;
+          const isMe = msg.userId === currentUserId && !msg.isAI;
           const sender = isMe
             ? 'You'
             : msg.isAI

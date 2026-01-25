@@ -186,3 +186,30 @@ export const sendWebSocketMessage = (payload) => {
     }
   });
 };
+
+export const checkOnlineStatus = (friendIds) => {
+  return new Promise((resolve) => {
+    if (!socket || !socket.connected) {
+      return resolve([]);
+    }
+    socket.emit('check-status', { friendIds }, (onlineIds) => {
+      resolve(onlineIds || []);
+    });
+  });
+};
+
+export const emitHeartbeat = () => {
+  if (socket && socket.connected) {
+    socket.emit('heartbeat');
+  }
+};
+
+export const subscribeToStatusUpdates = (callback) => {
+  if (!socket) return () => { };
+
+  socket.on('friend-status', callback);
+  return () => {
+    socket.off('friend-status', callback);
+  };
+};
+
