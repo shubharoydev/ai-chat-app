@@ -9,6 +9,7 @@ export const startMessageBatching = async () => {
     const messageBuffer = [];
     let lastFlushTime = Date.now();
     const FLUSH_INTERVAL = 5 * 60 * 1000; // 5 minutes
+    const BULK_THRESHOLD = 1000; // Flush immediately when buffer reaches 1000 messages
 
     const flushToMongo = async () => {
       if (!messageBuffer.length) return;
@@ -36,20 +37,31 @@ export const startMessageBatching = async () => {
       }));
 
       try {
-        await Message.bulkWrite(bulkOps, { ordered: false });
+        const result = await Message.bulkWrite(bulkOps, { ordered: false });
+
+        logInfo('MongoDB bulkWrite completed', {
+          insertedCount: result.upsertedCount || 0,
+          modifiedCount: result.modifiedCount || 0,
+          totalProcessed: messageBuffer.length,
+        });
 
         // Commit Kafka offsets ONLY after DB success
         for (const { kafkaMsg, resolveOffset } of messageBuffer) {
           resolveOffset(kafkaMsg.offset);
         }
 
+        // Clear buffer and update timestamp
         messageBuffer.length = 0;
         lastFlushTime = Date.now();
 
-        logInfo('MongoDB bulkWrite completed');
+        logInfo('Kafka offsets committed successfully');
       } catch (err) {
-        logError('MongoDB bulkWrite failed', { error: err.message });
+        logError('MongoDB bulkWrite failed', { 
+          error: err.message,
+          bufferSize: messageBuffer.length 
+        });
         // DO NOT clear buffer → Kafka will retry
+        throw err; // Re-throw to trigger consumer pause
       }
     };
 
@@ -74,6 +86,16 @@ export const startMessageBatching = async () => {
             data: parsed,
             resolveOffset,
           });
+
+          // Auto-flush when buffer reaches threshold (1000 messages)
+          if (messageBuffer.length >= BULK_THRESHOLD) {
+            logInfo('Bulk threshold reached, flushing immediately', {
+              count: messageBuffer.length,
+              threshold: BULK_THRESHOLD,
+            });
+            await flushToMongo();
+          }
+
         } catch (err) {
           logError('Failed to parse Kafka message', { error: err.message });
           resolveOffset(msg.offset); 
