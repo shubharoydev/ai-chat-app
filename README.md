@@ -1,540 +1,290 @@
-# AI Chat Application 
+# 🚀 AI Chat Application
 
-A scalable, real-time chat application backend built with Node.js, utilizing MongoDB for persistent storage, Redis for caching, Kafka for message queuing, and Socket.IO for real-time communication. Supports user-to-user messaging and AI-powered responses via the Gemini API. Designed for high availability, fault tolerance, and efficient message processing.
+A scalable, real-time chat backend built with **Node.js**, designed for high-traffic and distributed environments.
 
+It combines:
 
+* **WebSockets** for instant delivery
+* **Redis** for fast caching
+* **Apache Kafka** (3-broker cluster) for distributed streaming
+* **Aiven Cloud kafka Support**
+* **MongoDB** for long-term persistence
+* **Gemini API** for AI-powered responses
+
+The system follows a **Real-Time First + Asynchronous Persistence** architecture and is production-ready for distributed deployments.
+
+---
 
 # 📌 Overview
 
-The **AI Chat Application** is a full MERN-stack real-time messaging platform featuring:
+The AI Chat Application is architected around:
 
-* **Instant user-to-user chat**
-* **AI-enhanced responses using Gemini API**
-* **Persistent storage with MongoDB**
-* **Redis-based caching & Socket.IO scaling**
-* **Kafka-backed message processing**
-* **Automatic retry & failure recovery**
+* Instant message delivery via Socket.IO
+* Redis caching (cache-aside strategy)
+* Kafka-based asynchronous persistence
+* Bulk MongoDB writes with idempotency
+* Offset commits only after successful DB persistence
+* Self-healing retry & recovery mechanisms
 
-Built to support **high-traffic**, **multi-user**, **distributed environments**.
+Designed for:
+
+* Zero message loss
+* Horizontal scalability
+* High-throughput environments
 
 ---
 
 # ✨ Features
 
-### 💬 Real-Time Messaging
+## 🔹 Real-Time Messaging
 
-* Ultra-fast communication via **Socket.IO**
+* Instant user-to-user delivery
+* Optimistic UI support
+* JWT-secured WebSocket authentication
 
+## 🔹 AI-Powered Chat
 
-### 🤖 AI Message Processing
+* `/ai` prefixed messages trigger Gemini API
+* AI responses are delivered as standard chat messages
 
-* Messages beginning with `/ai` are responded to using **Gemini API**
+## 🔹 Distributed Kafka Persistence
 
-### 🧵 Message Persistence
+* 3-broker Kafka cluster
+* Partition-based scaling
+* Idempotent message handling via `messageId`
+* Offset commit after MongoDB bulk write
 
-* Messages stored in MongoDB
-* Redis caches recent conversations
-* Batch-based database writes
+## 🔹 Redis Caching
 
-### 🔄 Fault Tolerance & Recovery
+* Recent conversation storage with TTL
+* Cache-aside strategy
+* Automatic read-repair (self-healing cache)
 
-* Kafka publish failures stored in Redis
-* Automatic retry every 30 minutes
-* Durable message processing pipeline
+## 🔹 Fault Tolerance
 
-### 🔐 Security
-
-* JWT-secured WebSocket connections
-* Secure token rotation (access + refresh tokens)
-
-### 👥 User & Friend Management
-
-* Add friends
-* Maintain conversation threads
-
-### 🛠 Logging & Monitoring
-
-* Detailed logging
-* Kafka UI for cluster insights
+* Kafka failure → Redis backup queue
+* Background retry worker
+* Worker pause/resume memory protection
+* MongoDB failure → buffer preservation
 
 ---
 
-# 🧰 Tech Stack
+# 🧰 Technology Stack
 
-### Backend
+## Backend
 
-* **Node.js**, **Express**
-* **Socket.IO**
-* **Kafka** + **Zookeeper**
-* **Redis**
-* **MongoDB**
-* **Gemini API**
+* Node.js
+* Express
+* Socket.IO
+* Apache Kafka
+* Redis
+* MongoDB
+* Gemini API
 
-### Frontend
+## Frontend
 
-* **React (Vite)**
-* **Tailwind CSS**
-* **Socket.IO Client**
+* React (Vite)
+* Tailwind CSS
+* Socket.IO Client
 
-### Infrastructure
+## Infrastructure (Local Kafka Mode)
 
-* **Docker & Docker Compose**
-
-## Architecture & Message Flow
-
-### System Architecture Diagram
-```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   Client    │    │   Client    │    │   Client    │
-└──────┬──────┘    └──────┬──────┘    └──────┬──────┘
-       │                  │                  │
-       └──────────────────┼──────────────────┘
-                          │
-                 ┌────────▼────────┐
-                 │Socket.IO Server │
-                 └────────┬────────┘
-                          │
-           ┌──────────────┼──────────────┐
-           │              │              │
-    ┌──────▼──────┐ ┌─────▼─────┐ ┌──────▼─────┐
-    │   Redis     │ │   Kafka   │ │  MongoDB   │
-    │  (Caching)  │ │  (Queue)  │ │ (Storage)  │
-    └─────────────┘ └───────────┘ └────────────┘
-```
-
-### Detailed Message Flow
-
-#### 1. Message Initiation & Real-Time Delivery
-<img src="./docs/system-architecture.svg" />
-
-#### 2. Message Persistence Pipeline
-<img src="./docs/message-presistence.svg" width="30%" height="20%" />
-
-#### 3. Failed Message Recovery
-<img src="./docs/failed-message-recovery.svg" width="55%" height="55%" />
-
-## Installation
-
-### Prerequisites
-- Node.js (v16 or higher)
-- Docker and Docker Compose
-- MongoDB
-- Redis
-
-### Setup Instructions
-
-1. **Clone the Repository**
-   ```bash
-   git clone https://github.com/shubharoydev/ai-chat-app.git
-   ```
-
-2. **Environment Configuration**
-   Create `.env` file in backend folder:
-   ```env
-   MONGODB_URI=mongodb://localhost:27017/chatapp
-   REDIS_URL=redis://localhost:6379
-   GEMINI_API_KEY=<your-gemini-api-key>
-   CLIENT_ORIGIN=http://localhost:5173
-   PORT=3000
-
-   #Kafka ( Use localhost since app runs outside Docker)
-   KAFKA_CLIENT_ID=chat-app
-   KAFKA_BROKERS=localhost:9092,localhost:9093,localhost:9094
-
-   # JWT
-   JWT_ACCESS_SECRET=<your-jwt-access-secret>
-   JWT_REFRESH_SECRET=<your-jwt-refresh-secret>
-   JWT_ACCESS_EXPIRY=15m
-   JWT_REFRESH_EXPIRY=28d
-
-   # Arcjet & Gemini
-   ARCJET_ENV=development
-   ARCJET_KEY=<your-arcjet-key>
-   ```
-
-2. **Environment Configuration**
-   Create `.env` file in frontend folder:
-   ```env
-   VITE_API_URL=http://localhost:3000
-   VITE_WS_URL=ws://localhost:3000
-   ```
-
-3. **Start Infrastructure Services**
-   ```bash
-   docker-compose up -d
-   ```
-
-4. **Launch Backend Application**
-   ```bash
-   cd backend 
-   npm install
-   npm run dev 
-   ```
-
-6. **Launch Frontend Application**
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
-
-7. **Access Applications**
-   - Frontend: http://localhost:5173
-   - Backend: http://localhost:3000
-   - Kafka UI: http://localhost:8080
-
-## Error Handling & Reliability
-
-### Failure Recovery Strategies
-- **Socket.IO**: JWT authentication failures emit error events to clients
-- **Kafka**: Failed publishes stored in Redis with 7-day TTL, retried every 30 minutes
-- **MongoDB**: Bulk write failures trigger exponential backoff retries (max 3 attempts)
-- **Redis**: Message caching with automatic expiration
-
-### Monitoring & Logging
-- Comprehensive error logging with `logError` and `logInfo`
-- Real-time client error feedback via Socket.IO
-- Kafka UI for queue monitoring
-
-## Scalability Features
-
-### Horizontal Scaling
-
-- **Kafka**: Three-partition distributed processing
-- **Redis**: Reduces database load through intelligent caching
-- **MongoDB**: Optimized bulk operations with upserts
-
-### Performance Optimizations
-- Batch message processing (5-minute intervals)
-- Redis caching of recent conversations
-- Connection pooling and efficient resource utilization
-
-
-# 🐳 Docker Compose (Uses Docker Hub Images)
-
-Your frontend & backend are pulled from:
-
-* **Frontend** → `shubha69/ai_chatapp-frontend:latest`
-* **Backend** → `shubha69/ai_chatapp-backend:latest`
-
-# Folder Structure
-
-```
-ai-chat-app/
-├─ docker-compose.yml
-├─ .env
-
-````
-
-# docker-compose.yml
-
-```yaml
-services:
-  zookeeper1:
-    image: confluentinc/cp-zookeeper:7.6.0
-    hostname: zookeeper1
-    environment:
-      ZOOKEEPER_SERVER_ID: 1
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-      ZOOKEEPER_SERVERS: zookeeper1:2888:3888;zookeeper2:2888:3888;zookeeper3:2888:3888
-    ports:
-      - "2181:2181"
-    networks:
-      - kafka-net
-    volumes:
-      - zk1-data:/var/lib/zookeeper/data
-      - zk1-log:/var/lib/zookeeper/log
-
-  zookeeper2:
-    image: confluentinc/cp-zookeeper:7.6.0
-    hostname: zookeeper2
-    environment:
-      ZOOKEEPER_SERVER_ID: 2
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-      ZOOKEEPER_SERVERS: zookeeper1:2888:3888;zookeeper2:2888:3888;zookeeper3:2888:3888
-    ports:
-      - "2182:2181"
-    networks:
-      - kafka-net
-    volumes:
-      - zk2-data:/var/lib/zookeeper/data
-      - zk2-log:/var/lib/zookeeper/log
-
-  zookeeper3:
-    image: confluentinc/cp-zookeeper:7.6.0
-    hostname: zookeeper3
-    environment:
-      ZOOKEEPER_SERVER_ID: 3
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-      ZOOKEEPER_SERVERS: zookeeper1:2888:3888;zookeeper2:2888:3888;zookeeper3:2888:3888
-    ports:
-      - "2183:2181"
-    networks:
-      - kafka-net
-    volumes:
-      - zk3-data:/var/lib/zookeeper/data
-      - zk3-log:/var/lib/zookeeper/log
-
-  kafka1:
-    image: confluentinc/cp-kafka:7.6.0
-    hostname: kafka1
-    depends_on:
-      - zookeeper1
-      - zookeeper2
-      - zookeeper3
-    ports:
-      - "9092:9092"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper1:2181,zookeeper2:2181,zookeeper3:2181
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,INTERNAL://0.0.0.0:29092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,INTERNAL://kafka1:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
-      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
-      KAFKA_NUM_PARTITIONS: 3
-      KAFKA_MIN_INSYNC_REPLICAS: 2
-      KAFKA_LOG_DIRS: /var/lib/kafka/data
-    networks:
-      - kafka-net
-    volumes:
-      - kafka1-data:/var/lib/kafka/data
-
-  kafka2:
-    image: confluentinc/cp-kafka:7.6.0
-    hostname: kafka2
-    depends_on:
-      - zookeeper1
-      - zookeeper2
-      - zookeeper3
-    ports:
-      - "9093:9093"
-    environment:
-      KAFKA_BROKER_ID: 2
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper1:2181,zookeeper2:2181,zookeeper3:2181
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9093,INTERNAL://0.0.0.0:29093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9093,INTERNAL://kafka2:29093
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
-      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
-      KAFKA_NUM_PARTITIONS: 3
-      KAFKA_MIN_INSYNC_REPLICAS: 2
-      KAFKA_LOG_DIRS: /var/lib/kafka/data
-    networks:
-      - kafka-net
-    volumes:
-      - kafka2-data:/var/lib/kafka/data
-
-  kafka3:
-    image: confluentinc/cp-kafka:7.6.0
-    hostname: kafka3
-    depends_on:
-      - zookeeper1
-      - zookeeper2
-      - zookeeper3
-    ports:
-      - "9094:9094"
-    environment:
-      KAFKA_BROKER_ID: 3
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper1:2181,zookeeper2:2181,zookeeper3:2181
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9094,INTERNAL://0.0.0.0:29094
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9094,INTERNAL://kafka3:29094
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
-      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
-      KAFKA_NUM_PARTITIONS: 3
-      KAFKA_MIN_INSYNC_REPLICAS: 2
-      KAFKA_LOG_DIRS: /var/lib/kafka/data
-    networks:
-      - kafka-net
-    volumes:
-      - kafka3-data:/var/lib/kafka/data
-
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    depends_on:
-      - kafka1
-      - kafka2
-      - kafka3
-    ports:
-      - "8080:8080"
-    environment:
-      DYNAMIC_CONFIG_ENABLED: "true"
-      KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka1:29092,kafka2:29093,kafka3:29094
-    networks:
-      - kafka-net
-
-  backend:
-    image: shubha69/ai_chatapp-backend:latest
-    container_name: my-backend
-    ports:
-      - "${PORT}:3000"
-    env_file:
-      - ./.env
-    environment:
-      PORT: ${PORT}
-      MONGODB_URI: ${MONGODB_URI}
-      KAFKA_BROKERS: ${KAFKA_BROKERS}
-      REDIS_URL: ${REDIS_URL}
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      CLIENT_ORIGIN: ${CLIENT_ORIGIN}
-      KAFKA_CLIENT_ID: ${KAFKA_CLIENT_ID}
-      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
-      JWT_ACCESS_EXPIRY: ${JWT_ACCESS_EXPIRY}
-      JWT_REFRESH_EXPIRY: ${JWT_REFRESH_EXPIRY}
-      ARCJET_ENV: ${ARCJET_ENV}
-      ARCJET_KEY: ${ARCJET_KEY}
-    depends_on:
-      - kafka1
-      - kafka2
-      - kafka3
-    networks:
-      - kafka-net
-
-  frontend:
-    image: shubha69/ai_chatapp-frontend:latest
-    container_name: my-frontend
-    ports:
-      - "5173:80"
-    depends_on:
-      - backend
-    networks:
-      - kafka-net
-
-networks:
-  kafka-net:
-    driver: bridge
-
-volumes:
-  zk1-data:
-  zk1-log:
-  zk2-data:
-  zk2-log:
-  zk3-data:
-  zk3-log:
-  kafka1-data:
-  kafka2-data:
-  kafka3-data:
-````
+* Docker
+* Docker Compose
+* 3-node Kafka Cluster
+* Kafka UI (Docker-only monitoring)
 
 ---
 
-# .env file
+## 📄 Documentation
 
-```env
-MONGODB_URI=YOUR_MONGODB_URI
-REDIS_URL=YOUR_REDIS_URL
-GEMINI_API_KEY=YOUR_GEMINI_API_KEY
-CLIENT_ORIGIN=http://localhost:5173
-PORT=3000
+This project includes detailed documentation to help you understand the API and the chat persistence architecture.
 
-#Kafka 
-KAFKA_CLIENT_ID=chat-app
-KAFKA_BROKERS=kafka:29092,kafka2:29093,kafka3:29094
+### 📌 Available Docs
 
-# JWT
-JWT_ACCESS_SECRET=YOUR_JWT_ACCESS_SECRET
-JWT_REFRESH_SECRET=YOUR_JWT_REFRESH_SECRET
-JWT_ACCESS_EXPIRY=15m
-JWT_REFRESH_EXPIRY=28d
+* 🔗 **Chat Persistence Flow** – Understand how chat interactions are stored, retrieved, and persisted across sessions.
+  👉 [docs/CHAT_PERSISTANCE_FLOW.md](https://github.com/shubharoydev/ai-chat-app/blob/main/docs/CHAT_PERSISTANCE_FLOW.md)
 
-# Arcjet 
-ARCJET_ENV=development
-ARCJET_KEY=YOUR_ARCJET_KEY
+* 🔗 **API Documentation** – Complete reference for all API endpoints, request/response schemas, authentication, and usage examples.
+  👉 [docs/API_DOCUMENTATION.md](https://github.com/shubharoydev/ai-chat-app/blob/main/docs/API_DOCUMENTATION.md)
 
+---
 
-VITE_API_URL=http://localhost:3000
-VITE_WS_URL=ws://localhost:3000
+## 📦 Versioning
+
+Use the following Docker images from Docker Hub:
+
+```
+shubha69/ai_chatapp-frontend:latest
+shubha69/ai_chatapp-backend:latest
 ```
 
+Docker Hub links:
 
+* Backend: [https://hub.docker.com/r/shubha69/ai_chatapp-backend](https://hub.docker.com/r/shubha69/ai_chatapp-backend)
+* Frontend: [https://hub.docker.com/r/shubha69/ai_chatapp-frontend](https://hub.docker.com/r/shubha69/ai_chatapp-frontend)
 
-# ▶️ Run Everything
+---
 
-Start all services:
+# ⚡ Quick Start
+
+### 1. Start Infrastructure (Kafka, Zookeeper, Redis, Mongo)
+
+If you are running the app locally, you need the infrastructure running in Docker:
 
 ```bash
-docker-compose up -d
-````
-
-
-
-### 📌 View Logs
-
-#### 🔹 Frontend Logs
-
-```bash
-docker-compose logs -f frontend
+docker-compose up -d zookeeper1 zookeeper2 zookeeper3 kafka kafka2 kafka3 kafka-ui
+# Ensure you also have MongoDB and Redis running locally or in Docker or Cloud Service
 ```
 
-#### 🔹 Backend Logs
+### 2. Backend Setup
 
 ```bash
-docker-compose logs -f backend
+cd backend
+npm install
+npm run dev
 ```
 
-This will:
-
-* Start Zookeeper (3 nodes)
-* Start Kafka (3 nodes)
-* Start Kafka UI
-* Start backend container
-* Start frontend container
-
----
-
-# 🌐 Access the Applications
-
-| Service           | URL                                            |
-| ----------------- | ---------------------------------------------- |
-| **Frontend (UI)** | [http://localhost:5173](http://localhost:5173) |
-| **Backend API**   | [http://localhost:3000](http://localhost:3000) |
-| **Kafka UI**      | [http://localhost:8080](http://localhost:8080) |
-
----
-
-# 🧪 Test Setup
-
-### Test Backend API
+### 3. Frontend Setup
 
 ```bash
- http://localhost:3000/api/health
+cd frontend
+npm install
+npm run dev
 ```
 
-### Test Frontend
+---
 
-Open browser:
+### ✅ Version Compatibility
 
-👉 [http://localhost:5173](http://localhost:5173)
+#### 🔹 `shubha69/ai_chatapp-backend:1.5.0` and Above
+
+* Supports **cloud-based Aiven Kafka only**
+* Designed for cloud deployments
+* ❌ Does **NOT** support local Docker Kafka setup
 
 ---
 
-# 🔮 Future Roadmap
+#### 🔹 `shubha69/ai_chatapp-backend1.4.0` and Below
 
-* User online/offline presence
-* Media sharing (images, videos)
-* Kubernetes deployment 
+* Supports **local Docker Kafka setup**
+* Can be used for local development environments
+* Also compatible with custom Kafka configurations
 ---
 
-## Contributing
+### 🔧 Custom Kafka Configuration
+
+If you want to modify the Kafka configuration:
+
+1. Update the Kafka setup code
+2. Build your own backend Docker image
+3. Push it to your Docker Hub repository
+4. Use your custom version tag
+
+---
+
+
+# ⚙️ Running the Application
+
+## 🐳 Run Local Kafka Cluster (Docker Only)
+
+Your provided Docker Compose setup includes:
+
+* 3 Zookeeper nodes
+* 3 Kafka brokers
+* Kafka UI (for monitoring only in Docker mode)
+
+Start Kafka cluster:
+
+```bash
+docker-compose up -d zookeeper1 zookeeper2 zookeeper3 kafka kafka2 kafka3 kafka-ui
+```
+
+Kafka will be available on:
+
+* `localhost:9092`
+* `localhost:9093`
+* `localhost:9094`
+
+Kafka UI (Docker-only):
+
+```
+http://localhost:8080
+```
+
+⚠️ Kafka UI is **only for local Docker deployments**.
+It is not used in cloud-managed Kafka setups.
+
+---
+
+# 📊 Monitoring (Local Docker Mode Only)
+
+When using Docker Kafka:
+
+* Kafka UI → topic & partition monitoring
+* Offset commit tracking
+* Replication visibility
+* Broker health checks
+
+In cloud mode, use your provider’s monitoring tools instead.
+
+---
+
+# 🚀 Scalability
+
+* Multiple workers across Kafka partitions
+* Kafka auto-rebalancing
+* Backend replicas behind load balancer
+* Bulk MongoDB writes
+* Composite DB indexing
+
+---
+
+# 🤝 Contributing
+
+We welcome contributions to improve scalability, reliability, and features.
+
+### Contribution Workflow
 
 1. Fork the repository
-2. Create feature branch: `git checkout -b feature/amazing-feature`
-3. Commit changes: `git commit -m "Add amazing feature"`
-4. Push to branch: `git push origin feature/amazing-feature`
-5. Open a Pull Request
+2. Create a feature branch
 
-## License
+   ```
+   git checkout -b feature/your-feature-name
+   ```
+3. Make your changes following project architecture guidelines
+4. Ensure linting and formatting are clean
+5. Commit with a clear message
 
-This project is licensed under the MIT License. See [LICENSE](https://opensource.org/licenses/MIT) file for details.
+   ```
+   git commit -m "feat: add your feature"
+   ```
+6. Push to your fork
+
+   ```
+   git push origin feature/your-feature-name
+   ```
+7. Open a Pull Request
+
+---
+
+# 🔮 Roadmap
+
+* End-to-End Encryption (E2EE)
+* Media & file sharing
+* Message reactions
+
+---
+
+# 🏁 Final Notes
+
+This system is designed with **distributed systems best practices** in mind:
+
+* Event-driven architecture
+* Strong durability guarantees
+* Fault-tolerant recovery
+* Horizontal scalability
+
+Whether running locally with Docker Kafka or using a managed Kafka provider, the architecture remains consistent and production-ready.
+
+If you’re building scalable real-time systems — this project provides a strong, extensible foundation.

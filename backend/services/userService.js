@@ -2,7 +2,7 @@ import { User } from '../models/userModel.js';
 import { createFriend, updateFriendNickname as updateFriendNicknameInDB, getAddedFriends, findMutualFriendship } from '../repositories/friendRepository.js';
 import { getMessagesByChatId } from '../repositories/messageRepository.js';
 import { getRedisClient } from '../config/redisSetup.js';
-import { publishMessage } from '../utils/kafkaProducer.js';
+
 import { createError } from '../utils/errorHandler.js';
 import { Friend } from '../models/friendModel.js';
 

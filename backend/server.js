@@ -22,9 +22,9 @@ const server = createServer(app);
 //  Import producer + ensureTopic
 import { ensureTopic, producer } from './config/kafka.js';
 
-await ensureTopic("chat-topic"); // replace with your topic name(s)
+//await ensureTopic("chat-topic"); // replace with your topic name(s)
 
-app.use(express.urlencoded({ extended: true })); 
+app.use(express.urlencoded({ extended: true }));
 // Middleware
 app.use(helmet());
 app.use(cors({
@@ -45,32 +45,35 @@ app.use(globalErrorHandler);
 // Initialize connections and start server
 const startServer = async () => {
   try {
-    logInfo('Starting server initialization...', { 
+    logInfo('Starting server initialization...', {
       env: process.env.NODE_ENV,
       kafkaGroupId: process.env.KAFKA_GROUP_ID,
       kafkaBrokers: process.env.KAFKA_BROKERS
     });
-    
+
     await connectMongoDB();
     logInfo('MongoDB connected successfully');
-    
+
     const redisClient = getRedisClient();
     await redisClient.ping(); // Test Redis Cluster connection
     logInfo('Redis connected successfully');
-    
+
     // Explicitly connect Kafka producer
-     await producer.connect();
-     logInfo('Kafka producer ready and connected');
-    
+    await producer.connect();
+    logInfo('Kafka producer ready and connected');
+
+    await ensureTopic('chat-messages-persist');
+    logInfo('Ensured chat-messages-persist topic exists');
+
     // Subscribe to Kafka topics here if needed
     // Example: await consumeMessages('chat-messages', (message) => {
     //   console.log('Received message:', message);
     // });
     logInfo('Kafka consumer initialized successfully');
-    
-     await startMessageBatching();
-     logInfo('Message batching started successfully');
-    
+
+    await startMessageBatching();
+    logInfo('Message batching started successfully');
+
     initializeSocket(server);
     logInfo('Socket.IO initialized successfully');
 
@@ -79,8 +82,8 @@ const startServer = async () => {
       logInfo(`Server running on port ${port}`);
     });
   } catch (error) {
-    logError('Server startup failed', { 
-      error: error.message, 
+    logError('Server startup failed', {
+      error: error.message,
       stack: error.stack,
       name: error.name,
       code: error.code,

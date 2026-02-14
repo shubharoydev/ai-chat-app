@@ -122,3 +122,16 @@ jobs:
           tags: |
             shubha69/ai_chatapp-frontend:${{ needs.detect.outputs.version }}
             shubha69/ai_chatapp-frontend:latest
+
+
+  # REDEPLOY ON RENDER
+
+  redeploy:
+    needs: [detect, build-and-push]
+    runs-on: ubuntu-latest
+    if: needs.detect.outputs.component == 'backend'
+
+    steps:
+      - name: Trigger Render Backend Redeploy
+        run: |
+          curl --fail -X POST "${{ secrets.RENDER_BACKEND_DEPLOY_HOOK }}"
