@@ -19,6 +19,9 @@ import { globalErrorHandler } from './utils/errorHandler.js';
 const app = express();
 const server = createServer(app);
 
+// Trust proxy is required for secure cookies behind a load balancer (Render/Vercel)
+app.set('trust proxy', 1);
+
 //  Import producer + ensureTopic
 import { ensureTopic, producer } from './config/kafka.js';
 

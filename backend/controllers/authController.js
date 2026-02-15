@@ -1,3 +1,5 @@
+import dotenv from 'dotenv';
+dotenv.config();
 import jwt from 'jsonwebtoken';
 import { User } from '../models/userModel.js';
 import ms from 'ms';
@@ -46,16 +48,16 @@ export const signup = async (req, res, next) => {
 
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      secure: process.env.NODE_ENV,
+      sameSite: process.env.NODE_ENV ? 'none' : 'strict',
       maxAge: ms(jwtAccessExpiry),
     });
 
-    res.cookie('refreshToken', refreshToken, {    
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    maxAge: ms(jwtRefreshExpiry),
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV ,
+      sameSite: process.env.NODE_ENV ? 'none' : 'strict',
+      maxAge: ms(jwtRefreshExpiry),
     });
     res
       .status(201)
@@ -108,17 +110,16 @@ export const login = async (req, res, next) => {
 
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      secure: process.env.NODE_ENV ,
+      sameSite: process.env.NODE_ENV ? 'none' : 'strict',
       maxAge: ms(jwtAccessExpiry),
     });
 
-
-    res.cookie('refreshToken', refreshToken, {    
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    maxAge: ms(jwtRefreshExpiry),
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV ,
+      sameSite: process.env.NODE_ENV ? 'none' : 'strict',
+      maxAge: ms(jwtRefreshExpiry),
     });
 
     console.log('Login successful for user:', user.email);
@@ -131,7 +132,7 @@ export const login = async (req, res, next) => {
         email: user.email,
       },
       tokens: {
-        accessToken,refreshToken
+        accessToken, refreshToken
       }
     });
   } catch (error) {
@@ -195,8 +196,8 @@ export const refreshToken = async (req, res, next) => {
     //  Set new access token cookie
     res.cookie('accessToken', newAccessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      secure: process.env.NODE_ENV ,
+      sameSite: process.env.NODE_ENV ? 'none' : 'strict',
       maxAge: ms(jwtAccessExpiry),
     });
 
@@ -225,14 +226,14 @@ export const logout = async (req, res, next) => {
 
     res.clearCookie('accessToken', {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      secure: process.env.NODE_ENV ,
+      sameSite: process.env.NODE_ENV ? 'none' : 'strict',
     });
 
     res.clearCookie('refreshToken', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+      httpOnly: true,
+      secure: process.env.NODE_ENV ,
+      sameSite: process.env.NODE_ENV ? 'none' : 'strict',
     });
 
     res.status(200).json({ message: 'Logout successful' });
