@@ -41,7 +41,7 @@ function Home() {
         <FriendList onSelectFriend={setSelectedFriend} />
       </div>
       <div className="w-3/4">
-        {wsError && <p className="text-red-500 p-4">{wsError}</p>}
+        {/* {wsError && <p className="text-red-500 p-4">{wsError}</p>} */}
         {selectedFriend ? (
           <ChatWindow friend={selectedFriend} />
         ) : (
