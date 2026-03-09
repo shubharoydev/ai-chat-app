@@ -98,15 +98,25 @@ export const initializeSocket = (server) => {
 
     // ONLINE STATUS LOGIC 
     try {
-      //  Mark as online immediately
-      await redisClient.set(`online:${userId}`, 'true', 'EX', 15);
+      const stringUserId = userId.toString();
+      const sessionKey = `sessions:${stringUserId}`;
+      
+      // Add this socket to the user's active sessions
+      await redisClient.sadd(sessionKey, socket.id);
+      // Set expiry on session set just in case of server crash (longer than heartbeat)
+      await redisClient.expire(sessionKey, 60); 
 
-      // Notify friends (Live Update)
-      // Find users who have this user as a friend
-      const followers = await Friend.find({ friendId: userId }).select('userId');
-      followers.forEach(doc => {
-        io.to(doc.userId.toString()).emit('friend-status', { userId, status: 'online' });
-      });
+      //  Mark as online
+      await redisClient.set(`online:${stringUserId}`, 'true', 'EX', 15);
+
+      // Notify friends (Live Update) - Only if this is the first connection
+      const sessionCount = await redisClient.scard(sessionKey);
+      if (sessionCount === 1) {
+        const followers = await Friend.find({ friendId: stringUserId }).select('userId');
+        followers.forEach(doc => {
+          io.to(doc.userId.toString()).emit('friend-status', { userId: stringUserId, status: 'online' });
+        });
+      }
     } catch (err) {
       logError('Error processing online status', { error: err.message, userId });
     }
@@ -114,7 +124,10 @@ export const initializeSocket = (server) => {
     //  Heartbeat listener
     socket.on('heartbeat', async () => {
       try {
-        await redisClient.set(`online:${userId}`, 'true', 'EX', 15);
+        const stringUserId = userId.toString();
+        const sessionKey = `sessions:${stringUserId}`;
+        await redisClient.set(`online:${stringUserId}`, 'true', 'EX', 15);
+        await redisClient.expire(sessionKey, 60); 
       } catch (err) {
         // silent fail or log debug
       }
@@ -129,7 +142,9 @@ export const initializeSocket = (server) => {
         }
 
         const pipeline = redisClient.pipeline();
-        friendIds.forEach(id => pipeline.get(`online:${id}`));
+        friendIds.forEach(id => {
+          if (id) pipeline.get(`online:${id.toString()}`);
+        });
         const results = await pipeline.exec();
 
         const onlineIds = [];
@@ -203,20 +218,32 @@ export const initializeSocket = (server) => {
         }
 
         const redisClient = getRedisClient();
-        await redisClient.del(`online:${socket.user.userId}`);
+        const stringUserId = socket.user.userId.toString();
+        const sessionKey = `sessions:${stringUserId}`;
 
-        // Notify friends
-        const followers = await Friend.find({ friendId: socket.user.userId }).select('userId');
-        followers.forEach(doc => {
-          io.to(doc.userId.toString()).emit('friend-status', {
-            userId: socket.user.userId,
-            status: 'offline'
+        // Remove this specific socket from sessions
+        await redisClient.srem(sessionKey, socket.id);
+        
+        // Check if any other sessions remain
+        const remainingSessions = await redisClient.scard(sessionKey);
+        
+        if (remainingSessions === 0) {
+          await redisClient.del(`online:${stringUserId}`);
+
+          // Notify friends
+          const followers = await Friend.find({ friendId: stringUserId }).select('userId');
+          followers.forEach(doc => {
+            io.to(doc.userId.toString()).emit('friend-status', {
+              userId: stringUserId,
+              status: 'offline'
+            });
           });
-        });
+        }
 
-        logInfo('User disconnected', {
+        logInfo('User disconnected session', {
           userId: socket.user.userId,
-          socketId: socket.id
+          socketId: socket.id,
+          remainingSessions
         });
       } catch (error) {
         logError('Error handling socket disconnect', {
