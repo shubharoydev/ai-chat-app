@@ -19,10 +19,10 @@ function Login() {
       return;
     }
     setError(''); // Clear previous error
-    console.log('Attempting to login with:', formData);
+    // console.log('Attempting to login with:', formData);
     try {
       await loginUser(formData);
-      console.log('Login successful, navigating to /');
+      // console.log('Login successful, navigating to /');
       navigate('/');
     } catch (err) {
       console.error('Login error:', err);

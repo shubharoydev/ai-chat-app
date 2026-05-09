@@ -139,10 +139,20 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const broker = process.env.SERVICE_URI;
+if (!broker) {
+  throw new Error('SERVICE_URI environment variable is not set');
+}
 const hostname = broker.split(':')[0];
 
-const caPath = path.resolve(process.cwd(), process.env.KAFKA_CA_CERT_PATH);
+const caPath = path.resolve(process.cwd(), process.env.KAFKA_CA_CERT_PATH || './certs/ca.pem');
+if (!fs.existsSync(caPath)) {
+  throw new Error(`Kafka CA certificate not found at: ${caPath}`);
+}
 const ca = fs.readFileSync(caPath, 'utf-8');
+
+if (!process.env.KAFKA_USERNAME || !process.env.KAFKA_PASSWORD) {
+  throw new Error('KAFKA_USERNAME and KAFKA_PASSWORD environment variables must be set');
+}
 
 export const kafka = new Kafka({
   clientId: 'chat-app',
@@ -158,8 +168,15 @@ export const kafka = new Kafka({
     password: process.env.KAFKA_PASSWORD
   },
   logLevel: logLevel.ERROR,
+  connectionTimeout: 30000,
+  requestTimeout: 30000,
+  retry: {
+    initialRetryTime: 100,
+    maxRetryTime: 30000,
+    retries: 10,
+    factor: 0.2,
+  },
 });
-
 
 export const producer = kafka.producer({
   idempotent: true,
