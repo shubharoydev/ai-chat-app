@@ -8,11 +8,11 @@ let messageQueue = [];
 
 //connect
 export const connectWebSocket = (onMessage, onError) => {
-  console.log('[WebSocket] Initializing WebSocket connection...');
+  // console.log('[WebSocket] Initializing WebSocket connection...');
   if (socket) {
-    console.log('[WebSocket] Disconnecting existing WebSocket...');
+    // console.log('[WebSocket] Disconnecting existing WebSocket...');
     socket.disconnect();
-    console.log('[WebSocket] Existing WebSocket disconnected');
+    // console.log('[WebSocket] Existing WebSocket disconnected');
   }
 
   const socketUrl = import.meta.env.VITE_WS_URL;
@@ -30,12 +30,12 @@ export const connectWebSocket = (onMessage, onError) => {
   });
 
   socket.on('connect', () => {
-    console.log('[WebSocket] Connected to server with socket ID:', socket.id);
+    // console.log('[WebSocket] Connected to server with socket ID:', socket.id);
     reconnectAttempts = 0;
     while (messageQueue.length) socket.emit('sendMessage', messageQueue.shift());
   });
   socket.on('token-refreshed', (newAccessToken) => {
-  console.log('[WebSocket] Received fresh accessToken from server');
+  // console.log('[WebSocket] Received fresh accessToken from server');
   
   // Update the cookie so future HTTP requests work without refresh
   document.cookie = `accessToken=${newAccessToken}; path=/; SameSite=Lax; ${
@@ -43,11 +43,11 @@ export const connectWebSocket = (onMessage, onError) => {
   }`;
   });
   socket.on('reconnect_attempt', (attemptNumber) => {
-    console.log(`[WebSocket] Reconnection attempt ${attemptNumber}...`);
+    // console.log(`[WebSocket] Reconnection attempt ${attemptNumber}...`);
   });
 
   socket.on('reconnect', (attemptNumber) => {
-    console.log(`[WebSocket] Successfully reconnected after ${attemptNumber} attempts`);
+    // console.log(`[WebSocket] Successfully reconnected after ${attemptNumber} attempts`);
   });
 
   socket.on('reconnect_error', (error) => {
@@ -61,12 +61,12 @@ export const connectWebSocket = (onMessage, onError) => {
   socket.on('receiveMessage', (msg) => {
     const messageId = msg.tempId || msg.id || `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    console.log('[WebSocket] Received message:', {
-      id: messageId,
-      from: msg.userId,
-      to: msg.friendId,
-      content: msg.content?.substring(0, 30) + (msg.content?.length > 30 ? '...' : '')
-    });
+    // console.log('[WebSocket] Received message:', {
+    //   id: messageId,
+    //   from: msg.userId,
+    //   to: msg.friendId,
+    //   content: msg.content?.substring(0, 30) + (msg.content?.length > 30 ? '...' : '')
+    // });
 
     if (typeof onMessage === 'function') {
       try {
@@ -105,8 +105,8 @@ export const connectWebSocket = (onMessage, onError) => {
   });
 
   socket.on('disconnect', (r) => {
-    console.log('[WebSocket] Disconnected from server. Reason:', r);
-    console.log('[WebSocket] Will attempt to reconnect automatically...');
+    // console.log('[WebSocket] Disconnected from server. Reason:', r);
+    // console.log('[WebSocket] Will attempt to reconnect automatically...');
     if (onError) onError(new Error(`Disconnected: ${r}`));
   });
 
@@ -135,7 +135,7 @@ export const sendWebSocketMessage = (payload) => {
     messageQueue.push(payload);
 
     if (reconnectAttempts < maxReconnectAttempts) {
-      console.log('[WebSocket] Attempting to reconnect...');
+      // console.log('[WebSocket] Attempting to reconnect...');
       socket.connect();
     }
 
@@ -144,10 +144,10 @@ export const sendWebSocketMessage = (payload) => {
 
   return new Promise((resolve, reject) => {
     try {
-      console.log('[WebSocket] Sending message:', {
-        to: payload.friendId,
-        content: payload.content?.substring(0, 30) + (payload.content?.length > 30 ? '...' : '')
-      });
+      // console.log('[WebSocket] Sending message:', {
+      //   to: payload.friendId,
+      //   content: payload.content?.substring(0, 30) + (payload.content?.length > 30 ? '...' : '')
+      // });
 
       const messageToSend = {
         ...payload,
@@ -155,25 +155,25 @@ export const sendWebSocketMessage = (payload) => {
         tempId: payload.tempId,
       };
 
-      console.log('[WebSocket] Sending message with payload:', {
-        ...messageToSend,
-        content: messageToSend.content?.substring(0, 30) + (messageToSend.content?.length > 30 ? '...' : '')
-      });
+      // console.log('[WebSocket] Sending message with payload:', {
+      //   ...messageToSend,
+      //   content: messageToSend.content?.substring(0, 30) + (messageToSend.content?.length > 30 ? '...' : '')
+      // });
 
       socket.emit('sendMessage', messageToSend, (response) => {
         if (response?.error) {
           console.error('[WebSocket] Error sending message:', response.error);
           reject(new Error(response.error));
         } else {
-          console.log('[WebSocket] Message sent successfully', {
-            ...response,
-            messages: Array.isArray(response.messages)
-              ? response.messages.map(m => ({
-                ...m,
-                content: m.content?.substring(0, 30) + (m.content?.length > 30 ? '...' : '')
-              }))
-              : response.messages
-          });
+          // console.log('[WebSocket] Message sent successfully', {
+          //   ...response,
+          //   messages: Array.isArray(response.messages)
+          //     ? response.messages.map(m => ({
+          //       ...m,
+          //       content: m.content?.substring(0, 30) + (m.content?.length > 30 ? '...' : '')
+          //     }))
+          //     : response.messages
+          // });
           resolve({
             ...response,
             tempId: messageToSend.tempId

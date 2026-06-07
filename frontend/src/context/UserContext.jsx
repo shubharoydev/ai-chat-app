@@ -25,12 +25,12 @@ export const UserProvider = ({ children }) => {
 
 const tryAutoLogin = async () => {
   try {
-    console.log('Attempting auto-login...');
+    //console.log('Attempting auto-login...');
     const response = await api.get('/api/auth/me');
 
 
     // This line will only run if status is 200
-    console.log('Auto-login SUCCESS:', response.data);
+    //console.log('Auto-login SUCCESS:', response.data);
 
 
     setUser({
@@ -43,7 +43,7 @@ const tryAutoLogin = async () => {
     startSocket();
   } catch (err) {
     // Only runs on real error (401, 500, network, etc.)
-    console.log('Auto-login failed → no session or error', err.response?.status);
+    //console.log('Auto-login failed → no session or error', err.response?.status);
 
 
     // Clear user only if truly not logged in

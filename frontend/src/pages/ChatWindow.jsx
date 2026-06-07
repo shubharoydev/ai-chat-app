@@ -81,7 +81,7 @@ function ChatWindow({ friend }) {
 
 
         setMessages(formatted);
-        console.log('Historic messages loaded:', formatted.length);
+        //console.log('Historic messages loaded:', formatted.length);
       } catch (e) {
         const msg = e.response?.data?.error || e.message;
         setError(msg);
@@ -118,7 +118,7 @@ function ChatWindow({ friend }) {
       // Server confirmed a temp message → swap id (using messageId from server)
       // Check if this new message has a tempId that matches one of our local ones
       if (tempId && prev.some((m) => m.tempId === tempId)) {
-        console.log(`Replacing tempId ${tempId} → real messageId ${id || newMessage.messageId}`);
+        //console.log(`Replacing tempId ${tempId} → real messageId ${id || newMessage.messageId}`);
         return prev.map((m) =>
           m.tempId === tempId
             ? { ...m, id: id || newMessage.messageId, messageId: newMessage.messageId, tempId: undefined }
@@ -142,7 +142,7 @@ function ChatWindow({ friend }) {
           timestamp: timestamp || new Date().toISOString(),
           isAI: isAI ?? false,
         };
-        console.log('Adding confirmed WS message:', msg);
+        //console.log('Adding confirmed WS message:', msg);
         return [...prev, msg];
       }
 

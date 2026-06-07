@@ -9,11 +9,11 @@ let isRefreshing = false;
 
 api.interceptors.request.use(
   (config) => {
-    console.debug(`[API] Request: ${config.method.toUpperCase()} ${config.url}`, {
-      data: config.data,
-      params: config.params,
-      headers: config.headers
-    });
+    // console.debug(`[API] Request: ${config.method.toUpperCase()} ${config.url}`, {
+    //   data: config.data,
+    //   params: config.params,
+    //   headers: config.headers
+    // });
     return config;
   },
   (error) => {
@@ -57,37 +57,37 @@ api.interceptors.response.use(
 );
 
 export const signup = (d) => {
-  console.log('[API] Signing up new user:', { email: d.email });
+  // console.log('[API] Signing up new user:', { email: d.email });
   return api.post('/api/auth/signup', d);
 };
 
 export const login = (d = {}) => {
-  console.log('[API] Logging in user:', d.email ? { email: d.email } : 'Using cookie auth');
+  // console.log('[API] Logging in user:', d.email ? { email: d.email } : 'Using cookie auth');
   return api.post('/api/auth/login', d);
 };
 
 export const logout = () => {
-  console.log('[API] Logging out user');
+  // console.log('[API] Logging out user');
   return api.post('/api/auth/logout');
 };
 
 export const addFriend = (d) => {
-  console.log('[API] Adding friend:', d);
+  // console.log('[API] Adding friend:', d);
   return api.post('/api/users/friends', d);
 };
 
 export const getFriends = () => {
-  console.log('[API] Fetching friends list');
+  // console.log('[API] Fetching friends list');
   return api.get('/api/users/friends');
 };
 
 export const getMessages = (friendId, page = 1, limit = 20) => {
-  console.log(`[API] Fetching messages for friend ${friendId}`, { page, limit });
+  // console.log(`[API] Fetching messages for friend ${friendId}`, { page, limit });
   return api.get(`/api/chat/messages/${friendId}?page=${page}&limit=${limit}`);
 };
 
 export const searchFriends = (query) => {
-  console.log('[API] Searching users:', { query });
+  // console.log('[API] Searching users:', { query });
   return api.get('/api/users/search', {
     params: { query }
   });
