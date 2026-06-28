@@ -3,7 +3,7 @@ import { getMessages } from '../utils/api';
 import { UserContext } from '../context/UserContext';
 import { sendWebSocketMessage } from '../utils/WebSocket.js';
 
-function ChatWindow({ friend }) {
+function ChatWindow({ friend, onBack }) {
   const { newMessage, user, wsError } = useContext(UserContext);
   const [messages, setMessages] = useState([]);
   const [newMessageText, setNewMessageText] = useState('');
@@ -192,51 +192,134 @@ function ChatWindow({ friend }) {
     setNewMessageText('');
   };
 
+  // Generate avatar initials
+  const getInitials = (name) => {
+    if (!name) return '?';
+    const parts = name.split(' ');
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+  };
+
+  // Get avatar color based on name
+  const getAvatarColor = (name) => {
+    if (!name) return 'bg-gray-400';
+    const colors = [
+      'bg-blue-500', 'bg-purple-500', 'bg-pink-500', 'bg-indigo-500',
+      'bg-teal-500', 'bg-orange-500', 'bg-red-500', 'bg-cyan-500'
+    ];
+    const index = name.charCodeAt(0) % colors.length;
+    return colors[index];
+  };
+
+  // Group messages by sender and time
+  const groupMessages = (messages) => {
+    const groups = [];
+    let currentGroup = null;
+
+    messages.forEach((msg) => {
+      const isMe = msg.userId === currentUserId && !msg.isAI;
+      const sender = isMe ? 'me' : msg.isAI ? 'ai' : 'friend';
+
+      if (!currentGroup || currentGroup.sender !== sender) {
+        currentGroup = { sender, messages: [msg] };
+        groups.push(currentGroup);
+      } else {
+        currentGroup.messages.push(msg);
+      }
+    });
+
+    return groups;
+  };
+
+  const messageGroups = groupMessages(messages);
+
   // Render
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-gray-50">
       {/* Header */}
-      <div className="p-4 bg-white border-b">
-        <h3 className="text-lg font-semibold">
-          {friend?.nickname || friend?.name || 'Unknown'}
-        </h3>
+      <div className="p-4 bg-white border-b border-gray-200 shadow-sm">
+        <div className="flex items-center gap-3">
+          {/* Back button - only on mobile */}
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="md:hidden p-2 -ml-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all duration-200"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
+          <div className={`w-10 h-10 rounded-full ${getAvatarColor(friend?.nickname || friend?.name)} flex items-center justify-center text-white font-semibold text-sm shadow-sm`}>
+            {getInitials(friend?.nickname || friend?.name)}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-lg font-bold text-gray-900 truncate">
+              {friend?.nickname || friend?.name || 'Unknown'}
+            </h3>
+            <p className="text-xs text-gray-500 truncate">{friend?.email}</p>
+          </div>
+        </div>
       </div>
+
+      {/* Messages Area */}
       <div className="flex-1 p-4 overflow-y-auto">
-        {loading && <p className="text-gray-500 text-center mb-4">Loading messages…</p>}
+        {loading && (
+          <div className="flex items-center justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          </div>
+        )}
         {messages.length === 0 && !loading && !error && (
-          <p className="text-gray-400 text-center">No messages yet. Say hi!</p>
+          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+            <svg className="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+            <p className="text-sm font-medium">No messages yet</p>
+            <p className="text-xs mt-1">Say hi to start the conversation!</p>
+          </div>
         )}
 
-        {messages.map((msg, i) => {
-          const isMe = msg.userId === currentUserId && !msg.isAI;
-          const sender = isMe
-            ? 'You'
-            : msg.isAI
-              ? 'AI'
-              : friend?.nickname || friend?.name || 'Friend';
+        {messageGroups.map((group, groupIndex) => {
+          const isMe = group.sender === 'me';
+          const isAI = group.sender === 'ai';
+          const senderName = isMe ? 'You' : isAI ? 'AI' : friend?.nickname || friend?.name || 'Friend';
 
           return (
-            <div
-              key={msg.id || `fallback-${i}`}
-              className={`mb-4 ${isMe ? 'text-right' : 'text-left'}`}
-            >
-              <div
-                className={`inline-block p-3 rounded-2xl max-w-xs break-words shadow-sm ${isMe
-                  ? 'bg-green-500 text-white'
-                  : msg.isAI
-                    ? 'bg-gray-200 text-gray-800'
-                    : 'bg-blue-500 text-white'
-                  }`}
-              >
-                {msg.content}
-                {msg.isAI && <span className="ml-2 text-xs opacity-80">[AI]</span>}
-              </div>
-              <div className="text-xs text-gray-500 mt-1 px-1">
-                {sender} •{' '}
-                {new Date(msg.timestamp).toLocaleTimeString([], {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
+            <div key={`group-${groupIndex}`} className={`mb-4 ${isMe ? 'flex flex-col items-end' : 'flex flex-col items-start'}`}>
+              <div className="flex items-end gap-2 mb-1">
+                {!isMe && (
+                  <div className={`w-8 h-8 rounded-full ${getAvatarColor(isAI ? 'AI' : friend?.nickname || friend?.name)} flex items-center justify-center text-white font-semibold text-xs flex-shrink-0`}>
+                    {getInitials(isAI ? 'AI' : friend?.nickname || friend?.name)}
+                  </div>
+                )}
+                <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                  {group.messages.map((msg, msgIndex) => (
+                    <div
+                      key={msg.id || `fallback-${groupIndex}-${msgIndex}`}
+                      className={`mb-1 max-w-md px-4 py-2.5 rounded-2xl shadow-sm ${
+                        isMe
+                          ? 'bg-blue-600 text-white rounded-br-md'
+                          : isAI
+                            ? 'bg-gray-200 text-gray-800 rounded-bl-md'
+                            : 'bg-white text-gray-800 rounded-bl-md border border-gray-200'
+                      }`}
+                    >
+                      <p className="text-sm break-words">{msg.content}</p>
+                      {msg.isAI && <span className="ml-2 text-xs opacity-70">AI</span>}
+                      <div className={`text-xs mt-1 ${isMe ? 'text-blue-100' : 'text-gray-500'}`}>
+                        {new Date(msg.timestamp).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {isMe && (
+                  <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold text-xs flex-shrink-0">
+                    {getInitials('You')}
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -245,23 +328,30 @@ function ChatWindow({ friend }) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      <div className="p-4 bg-white border-t">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={newMessageText}
-            onChange={(e) => setNewMessageText(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
-            placeholder={
-              !currentUserId || !currentFriendId ? 'Loading…' : 'Type a message…'
-            }
-            className="flex-1 p-3 border rounded-lg outline-none focus:border-blue-500 transition"
-            disabled={loading || !currentUserId || !currentFriendId}
-          />
+      {/* Input Area */}
+      <div className="p-4 bg-white border-t border-gray-200">
+        <div className="flex gap-3 items-end">
+          <div className="flex-1 relative">
+            <input
+              type="text"
+              value={newMessageText}
+              onChange={(e) => setNewMessageText(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+              placeholder={
+                !currentUserId || !currentFriendId ? 'Loading…' : 'Type a message…'
+              }
+              className="w-full p-3 pr-12 border border-gray-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all duration-200 text-sm"
+              disabled={loading || !currentUserId || !currentFriendId}
+            />
+            <button
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+              disabled={loading || !currentUserId || !currentFriendId}
+            >
+            </button>
+          </div>
           <button
             onClick={handleSendMessage}
-            className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 disabled:bg-gray-400 transition font-medium"
+            className="bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-700 active:bg-blue-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all duration-200 shadow-sm flex items-center justify-center"
             disabled={
               loading ||
               !currentUserId ||
@@ -269,7 +359,9 @@ function ChatWindow({ friend }) {
               !newMessageText.trim()
             }
           >
-            Send
+            <svg className="w-5 h-5 rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+            </svg>
           </button>
         </div>
       </div>
