@@ -110,6 +110,11 @@ This project includes detailed documentation to help you understand the API and 
 
 ---
 
+## System Architecture Diagram
+
+![System Architecture](docs/System_architecture.jpg)
+
+---
 ## 📦 Versioning
 
 Use the following Docker images from Docker Hub:
