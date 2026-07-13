@@ -1,10 +1,34 @@
 import { consumeBatch } from '../utils/kafkaConsumer.js';
 import { Message } from '../models/messageModel.js';
 import { logInfo, logError } from '../utils/logger.js';
+import { producer, ensureTopic } from '../config/kafka.js';
+
+const DLQ_TOPIC = 'chat-messages-dlq';
+
+const sendToDLQ = async (msg, errorMessage) => {
+  try {
+    await producer.send({
+      topic: DLQ_TOPIC,
+      messages: [{
+        key: msg.key,
+        value: msg.value,
+        headers: {
+          ...msg.headers,
+          error: errorMessage,
+          originalTopic: 'chat-messages-persist',
+        }
+      }],
+    });
+    logInfo('Message sent to DLQ', { topic: DLQ_TOPIC });
+  } catch (err) {
+    logError('Failed to send message to DLQ', { error: err.message });
+  }
+};
 
 export const startMessageBatching = async () => {
   try {
     logInfo('Starting message batch worker...');
+    await ensureTopic(DLQ_TOPIC);
 
     const messageBuffer = [];
     let lastFlushTime = Date.now();
@@ -66,39 +90,40 @@ export const startMessageBatching = async () => {
     };
 
     // Flush every 5 minutes
-    setInterval(flushToMongo, FLUSH_INTERVAL);
+    setInterval(() => {
+      flushToMongo().catch(err => logError('Background flush to Mongo failed', { error: err.message }));
+    }, FLUSH_INTERVAL);
 
     await consumeBatch('chat-messages-persist', async (kafkaMessages, resolveOffset, heartbeat) => {
       if (!kafkaMessages.length) return;
 
       for (const msg of kafkaMessages) {
+        let parsed;
         try {
-          const parsed = JSON.parse(msg.value.toString());
-
+          parsed = JSON.parse(msg.value.toString());
           if (!parsed.messageId) {
-            console.warn('Skipping message without messageId', { parsed });
-            resolveOffset(msg.offset);
-            continue;
+            throw new Error('Missing messageId');
           }
-
-          messageBuffer.push({
-            kafkaMsg: msg,
-            data: parsed,
-            resolveOffset,
-          });
-
-          // Auto-flush when buffer reaches threshold (1000 messages)
-          if (messageBuffer.length >= BULK_THRESHOLD) {
-            logInfo('Bulk threshold reached, flushing immediately', {
-              count: messageBuffer.length,
-              threshold: BULK_THRESHOLD,
-            });
-            await flushToMongo();
-          }
-
         } catch (err) {
-          logError('Failed to parse Kafka message', { error: err.message });
-          resolveOffset(msg.offset); 
+          logError('Invalid Kafka message, sending to DLQ', { error: err.message });
+          await sendToDLQ(msg, err.message);
+          resolveOffset(msg.offset);
+          continue;
+        }
+
+        messageBuffer.push({
+          kafkaMsg: msg,
+          data: parsed,
+          resolveOffset,
+        });
+
+        // Auto-flush when buffer reaches threshold (1000 messages)
+        if (messageBuffer.length >= BULK_THRESHOLD) {
+          logInfo('Bulk threshold reached, flushing immediately', {
+            count: messageBuffer.length,
+            threshold: BULK_THRESHOLD,
+          });
+          await flushToMongo();
         }
       }
 

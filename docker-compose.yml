@@ -137,6 +137,27 @@ services:
     networks:
       - kafka-net
 
+  mongodb:
+    image: mongo:latest
+    container_name: my-mongodb
+    ports:
+      - "27017:27017"
+    networks:
+      - kafka-net
+    volumes:
+      - mongo-data:/data/db
+
+  redis:
+    image: redis:latest
+    container_name: my-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    networks:
+      - kafka-net
+    volumes:
+      - redis-data:/data
+
   # backend:
   #   build: ./backend
   #   container_name: my-backend
@@ -162,6 +183,8 @@ services:
   #     - kafka
   #     - kafka2
   #     - kafka3
+  #     - mongodb
+  #     - redis
   #   networks:
   #     - kafka-net
 
@@ -186,3 +209,5 @@ volumes:
   kafka1-data:
   kafka2-data:
   kafka3-data:
+  mongo-data:
+  redis-data:

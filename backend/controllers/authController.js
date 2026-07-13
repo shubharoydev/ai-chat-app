@@ -4,7 +4,6 @@ import jwt from 'jsonwebtoken';
 import { User } from '../models/userModel.js';
 import ms from 'ms';
 import { getRedisClient } from '../config/redisSetup.js';
-import { producer } from '../config/kafka.js';
 import {
   jwtAccessSecret,
   jwtRefreshSecret,
