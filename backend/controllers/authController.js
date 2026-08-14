@@ -90,8 +90,8 @@ export const login = async (req, res, next) => {
       throw createError(401, 'Invalid email or password');
     }
 
-    console.log('JWT Secret:', jwtAccessSecret ? 'Set' : 'Not set');
-    console.log('JWT Expiry:', jwtAccessExpiry);
+    // console.log('JWT Secret:', jwtAccessSecret ? 'Set' : 'Not set');
+    // console.log('JWT Expiry:', jwtAccessExpiry);
 
     const accessToken = jwt.sign({ userId: user._id }, jwtAccessSecret, {
       expiresIn: jwtAccessExpiry,

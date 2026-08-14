@@ -8,12 +8,22 @@ import { logInfo, logError } from '../utils/logger.js';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/userModel.js';
 import { jwtRefreshSecret } from '../config/env.js';
+import { getRedisClient } from '../config/redisSetup.js';
 const router = express.Router();
 
 // Request logging middleware
 router.use((req, res, next) => {
+  // Filter out sensitive fields from body
+  const sanitizedBody = { ...req.body };
+  const sensitiveFields = ['password', 'refreshToken', 'accessToken', 'confirmPassword'];
+  sensitiveFields.forEach(field => {
+    if (sanitizedBody[field]) {
+      sanitizedBody[field] = '***REDACTED***';
+    }
+  });
+
   logInfo(`[${new Date().toISOString()}] ${req.method} ${req.path}`, {
-    body: req.body,
+    body: sanitizedBody,
     query: req.query,
     params: req.params
   });
@@ -66,24 +76,48 @@ router.get('/me', async (req, res) => {
   const refreshToken = req.cookies.refreshToken;
 
   if (!refreshToken) {
-    return res.status(401).json({ error: 'No session' });
+    return res.status(401).json({ error: "No session" });
   }
 
   try {
     const decoded = jwt.verify(refreshToken, jwtRefreshSecret);
-    const user = await User.findById(decoded.userId).select('-password');
-    if (!user) return res.status(401).json({ error: 'User not found' });
+    const cacheKey = `user:${decoded.userId}`;
+
+    // Check Redis cache
+    const redis = getRedisClient();
+    if (redis) {
+      const cachedUser = await redis.get(cacheKey);
+
+      if (cachedUser) {
+        return res.json({
+          user: JSON.parse(cachedUser),
+        });
+      }
+    }
+
+    // Fetch from MongoDB
+    const user = await User.findById(decoded.userId).select("-password");
+
+    if (!user) {
+      return res.status(401).json({ error: "User not found" });
+    }
+
+    const userData = {
+      id: user._id.toString(),
+      name: user.name,
+      email: user.email,
+    };
+
+    // Save in Redis for 1 hour (3600 seconds)
+    if (redis) {
+      await redis.set(cacheKey, JSON.stringify(userData), "EX", 3600);
+    }
 
     return res.json({
-      user: {
-        id: user._id.toString(),
-        name: user.name,
-        email: user.email,
-      },
+      user: userData,
     });
   } catch (err) {
-    // Even if refresh token is invalid → let interceptor handle it later
-    return res.status(401).json({ error: 'Invalid session' });
+    return res.status(401).json({ error: "Invalid session" });
   }
 });
 
