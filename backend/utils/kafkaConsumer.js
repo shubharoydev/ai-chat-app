@@ -1,82 +1,25 @@
-// NOTE:
-// KAFKA CONFIGURATION SWITCH — READ BEFORE CHANGING
-//
-// This application previously used a LOCAL Kafka instance
-// started via Docker Compose. It has now been upgraded to use
-// an AIVEN cloud-based Kafka service.
-//
-// LOCAL DEVELOPMENT WITH DOCKER KAFKA:
-// - Uncomment the "Local Kafka (Docker)" configuration
-// - Comment out the "Aiven Kafka" configuration
-// - Use ONLY when Kafka is running via docker-compose
-//
-// AIVEN CLOUD KAFKA (DEFAULT / PRODUCTION):
-// - Use the "Aiven Kafka" configuration
-// - Requires SASL/SSL configuration and Aiven credentials
-// - Do NOT use local Kafka settings with Aiven brokers
-//
-// Incorrect configuration will cause authentication or
-// broker connection failures.
-
-//---------------------------------------------------------------------------------//
-
-
-// import { connectKafkaConsumer } from '../config/kafka.js';
-// import { createError } from './errorHandler.js';
-
-// let consumer;
-
-// (async () => {
-//   try {
-//     consumer = await connectKafkaConsumer('chat-group');
-//   } catch (error) {
-//     console.error('Failed to initialize Kafka consumer:', error);
-//     process.exit(1);
-//   }
-// })();
-
-// export const consumeBatch = async (topic, batchCallback) => {
-//   if (!consumer) throw createError(500, 'Kafka consumer not initialized');
-
-//   try {
-//     await consumer.subscribe({ topic, fromBeginning: false });
-//     await consumer.run({
-//       autoCommit: false,
-//       eachBatch: async ({ batch, resolveOffset, heartbeat, commitOffsetsIfNecessary }) => {
-//         const messages = batch.messages;
-//         console.log(`Received batch: ${messages.length} messages`);
-
-//         try {
-//           // Pass the raw messages + helpers to the worker callback
-//           await batchCallback(messages, resolveOffset, heartbeat);
-//         } catch (err) {
-//           console.error(`Error processing batch in ${topic}:`, err);
-//         }
-
-//         await commitOffsetsIfNecessary();
-//       },
-//     });
-//   } catch (err) {
-//     console.error(`Failed to consume Kafka messages from ${topic}:`, err);
-//     throw createError(500, `Failed to consume from ${topic}`, err);
-//   }
-// };
-
-//----------------------------------------------------------------------------------------------------------//
-
-
-
-
 import { connectKafkaConsumer } from '../config/kafka.js';
 import { logError, logInfo } from './logger.js';
 
-export const consumeBatch = async (topic, batchCallback) => {
+// Tracks the consumer created by the most recent consumeBatch call so it can be
+// shut down cleanly (used by workers/messageWorker.js stopMessageBatching and by
+// the integration test suite).
+let activeConsumer = null;
+let activeGroupId = null;
+
+export const consumeBatch = async (topic, batchCallback, options = {}) => {
+  const groupId = options.groupId
+    || process.env.KAFKA_CONSUMER_GROUP
+    || 'chat-group-worker';
+
   try {
     // Connect a consumer specifically for this worker
-    const consumer = await connectKafkaConsumer('chat-group-worker');
+    const consumer = await connectKafkaConsumer(groupId);
+    activeConsumer = consumer;
+    activeGroupId = groupId;
 
-    await consumer.subscribe({ topic, fromBeginning: false });
-    logInfo(`Subscribed to topic: ${topic}`);
+    await consumer.subscribe({ topic, fromBeginning: options.fromBeginning ?? false });
+    logInfo(`Subscribed to topic: ${topic}`, { groupId });
 
     await consumer.run({
       eachBatchAutoResolve: false,
@@ -96,3 +39,19 @@ export const consumeBatch = async (topic, batchCallback) => {
     throw err;
   }
 };
+
+// Disconnects the active consumer if any. Safe to call multiple times.
+export const stopConsumer = async () => {
+  if (!activeConsumer) return;
+  const consumer = activeConsumer;
+  activeConsumer = null;
+  activeGroupId = null;
+  try {
+    await consumer.disconnect();
+    logInfo('Kafka consumer disconnected');
+  } catch (err) {
+    logError('Failed to disconnect Kafka consumer', { error: err.message });
+  }
+};
+
+export const getActiveConsumerGroupId = () => activeGroupId;

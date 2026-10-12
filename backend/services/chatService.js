@@ -18,7 +18,7 @@ const publishToKafka = async (msg) => {
   try {
     await producer.send({
       topic: 'chat-messages-persist',
-      messages: [{ value: JSON.stringify(msg) }],
+      messages: [{ key: msg.chatId, value: JSON.stringify(msg) }],
     });
     logInfo('Published to Kafka', { chatId: msg.chatId, tempId: msg.tempId });
   } catch (err) {
@@ -147,11 +147,13 @@ export const getMessages = async (userId, friendId) => {
     const redisKey = `chat:recent:${chatId}`;
 
     // Try Redis first
-    let cachedMessages = await redisClient.lrange(redisKey, 0, -1);
+    // Note: LPUSH prepends messages (index 0 is the newest).
+    // To get the latest 20 messages, read elements 0 to 19, then reverse so they are chronological (oldest -> newest).
+    let cachedMessages = await redisClient.lrange(redisKey, 0, 19);
 
     if (cachedMessages.length > 0) {
       const msgs = cachedMessages.map(JSON.parse);
-      return msgs.slice(-20); // ensure only last 20
+      return msgs.reverse(); // chronological: oldest -> newest
     }
 
     // If Redis empty → fetch from MongoDB
@@ -163,6 +165,7 @@ export const getMessages = async (userId, friendId) => {
     const finalMessages = dbMessages.reverse(); // oldest → newest
 
     // Save them to Redis (for next time)
+    // Note: LPUSH in reverse order so the latest message ends up at index 0
     if (finalMessages.length > 0) {
       const pipeline = redisClient.multi();
 

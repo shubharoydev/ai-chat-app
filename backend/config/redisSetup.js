@@ -81,19 +81,13 @@ export const getRedisClient = () => {
 
 export const isRedisConnected = () => isConnected;
 
-const handleShutdown = async () => {
+export const closeRedisClient = async () => {
   if (!redisClient) return;
-  
   try {
     logInfo('Closing Redis connection...');
     await redisClient.quit();
     logInfo('Redis connection closed');
   } catch (error) {
     logError('Error closing Redis connection', { error: error.message });
-  } finally {
-    process.exit(0);
   }
 };
-
-process.on('SIGINT', handleShutdown);
-process.on('SIGTERM', handleShutdown);

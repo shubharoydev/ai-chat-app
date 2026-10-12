@@ -2,128 +2,17 @@
 // KAFKA CONFIGURATION SWITCH — READ BEFORE CHANGING
 //
 // This application previously used a LOCAL Kafka instance
-// started via Docker Compose. It has now been upgraded to use
-// an AIVEN cloud-based Kafka service.
+// started via Docker Compose. It was later upgraded to use an
+// AIVEN cloud-based Kafka service. Both modes are now supported
+// and selected automatically at runtime:
 //
-// LOCAL DEVELOPMENT WITH DOCKER KAFKA:
-// - Uncomment the "Local Kafka (Docker)" configuration
-// - Comment out the "Aiven Kafka" configuration
-// - Use ONLY when Kafka is running via docker-compose
+//   - AIVEN / CLOUD (default): used when SERVICE_URI is set.
+//     Requires SASL/SSL credentials and a CA certificate.
+//   - LOCAL / DOCKER COMPOSE (fallback): used when SERVICE_URI is
+//     NOT set. Connects to the plaintext brokers in KAFKA_BROKERS.
 //
-// AIVEN CLOUD KAFKA (DEFAULT / PRODUCTION):
-// - Use the "Aiven Kafka" configuration
-// - Requires SASL/SSL configuration and Aiven credentials
-// - Do NOT use local Kafka settings with Aiven brokers
-//
-// Incorrect configuration will cause authentication or
-// broker connection failures.
-
-//---------------------------------------------------------------------------------//
-
-// import { Kafka, Partitioners, logLevel } from 'kafkajs';
-// import { kafkaBrokers, kafkaClientId } from './env.js';
-// import { logInfo, logError } from '../utils/logger.js';
-
-// const kafka = new Kafka({
-//   clientId: kafkaClientId,
-//   brokers: kafkaBrokers,
-//   logLevel: logLevel.ERROR, 
-//   retry: {
-//     initialRetryTime: 1000,
-//     retries: 5, // how many times to retry before failing
-//   },
-// });
-
-// // ✅ Create producer with idempotence enabled
-// export const producer = kafka.producer({
-//   createPartitioner: Partitioners.LegacyPartitioner,
-//   maxInFlightRequests: 1,
-//   idempotent: true, // guarantees exactly-once delivery
-//   retries: 5,
-//   maxRetryTime: 30000,
-// });
-
-// // Track producer state manually
-// let isProducerConnected = false;
-
-// // ✅ Event listeners for producer connection state
-// producer.on(producer.events.CONNECT, () => {
-//   isProducerConnected = true;
-//   logInfo("✅ Kafka producer connected");
-// });
-
-// producer.on(producer.events.DISCONNECT, () => {
-//   isProducerConnected = false;
-//   logError("⚠️ Kafka producer disconnected");
-// });
-
-// // ✅ Consumer factory function
-// export const connectKafkaConsumer = async (groupId) => {
-//   const consumer = kafka.consumer({ groupId });
-//   try {
-//     await consumer.connect();
-//     logInfo('✅ Kafka consumer connected', { groupId });
-//     return consumer;
-//   } catch (error) {
-//     logError('❌ Failed to connect Kafka consumer', { error: error.message });
-//     throw error;
-//   }
-// };
-
-// // ✅ Check & reconnect producer if needed
-// // (use this before producing messages)
-// export const checkKafkaConnection = async () => {
-//   try {
-//     if (!isProducerConnected) {
-//       await producer.connect(); // reconnect on demand
-//       logInfo('✅ Kafka producer connected');
-//     }
-//     return true;
-//   } catch (error) {
-//     logError('❌ Kafka producer disconnected', { error: error.message });
-//     return false;
-//   }
-// };
-
-// // ✅ Safe send function (handles Redis fallback if Kafka fails)
-// // Example use:
-// // await safeSendMessage("chat-topic", { userId: 123, text: "hello" });
-// export const safeSendMessage = async (topic, message, redisClient) => {
-//   try {
-//     await checkKafkaConnection();
-//     await producer.send({
-//       topic,
-//       messages: [{ value: JSON.stringify(message) }],
-//     });
-//     logInfo('📨 Message sent to Kafka', { topic });
-//   } catch (err) {
-//     logError('❌ Failed to send to Kafka, saving to Redis', { error: err.message });
-//     if (redisClient) {
-//       await redisClient.lpush('failed-messages', JSON.stringify({ topic, message }));
-//     }
-//   }
-// };
-
-// // ✅ Ensure topic exists (prevents "leader not available" on new topics)
-// export const ensureTopic = async (topic) => {
-//   const admin = kafka.admin();
-//   try {
-//     await admin.connect();
-//     await admin.createTopics({
-//       topics: [{ topic }],
-//     });
-//     logInfo(`📌 Ensured topic exists: ${topic}`);
-//   } catch (error) {
-//     logError('❌ Failed to ensure topic', { error: error.message, topic });
-//   } finally {
-//     await admin.disconnect();
-//   }
-// };
-
-
-
-// ------------------------------------------------------------------------------------------------//
-
+// Do NOT point local Kafka settings at Aiven brokers (or vice versa):
+// incorrect configuration causes authentication or connection failures.
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -138,52 +27,108 @@ dns.setDefaultResultOrder('ipv4first');
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const broker = process.env.SERVICE_URI;
-if (!broker) {
-  throw new Error('SERVICE_URI environment variable is not set');
-}
-const hostname = broker.split(':')[0];
+// ---------------------------------------------------------------------------
+// Kafka client configuration.
+//
+// Two mutually exclusive modes are supported:
+//
+//   1. AIVEN / CLOUD (default): used whenever SERVICE_URI is set. Requires
+//      KAFKA_USERNAME, KAFKA_PASSWORD and a CA certificate. This is the
+//      original production configuration and is preserved unchanged.
+//
+//   2. LOCAL / DOCKER COMPOSE (fallback): used when SERVICE_URI is NOT set.
+//      Connects to the plaintext brokers listed in KAFKA_BROKERS. This mode
+//      exists for local development and the automated integration test suite.
+// ---------------------------------------------------------------------------
+const serviceUri = process.env.SERVICE_URI;
+// Explicit override wins: KAFKA_MODE=local forces local brokers even if
+// SERVICE_URI is present; KAFKA_MODE=cloud forces the cloud configuration.
+// When KAFKA_MODE is unset, presence of SERVICE_URI selects cloud mode.
+const kafkaMode = process.env.KAFKA_MODE;
+export const isCloudKafka = kafkaMode
+  ? kafkaMode !== 'local'
+  : Boolean(serviceUri);
 
-const caPath = path.resolve(process.cwd(), process.env.KAFKA_CA_CERT_PATH || './certs/ca.pem');
-if (!fs.existsSync(caPath)) {
-  throw new Error(`Kafka CA certificate not found at: ${caPath}`);
-}
-const ca = fs.readFileSync(caPath, 'utf-8');
+const buildKafkaConfig = () => {
+  if (isCloudKafka) {
+    const hostname = serviceUri.split(':')[0];
 
-if (!process.env.KAFKA_USERNAME || !process.env.KAFKA_PASSWORD) {
-  throw new Error('KAFKA_USERNAME and KAFKA_PASSWORD environment variables must be set');
-}
+    const caPath = path.resolve(process.cwd(), process.env.KAFKA_CA_CERT_PATH || './certs/ca.pem');
+    if (!fs.existsSync(caPath)) {
+      throw new Error(`Kafka CA certificate not found at: ${caPath}`);
+    }
+    const ca = fs.readFileSync(caPath, 'utf-8');
 
-export const kafka = new Kafka({
-  clientId: 'chat-app',
-  brokers: [broker],
-  ssl: {
-    ca: [ca],
-    rejectUnauthorized: true,
-    servername: hostname,
-  },
-  sasl: {
-    mechanism: 'scram-sha-256',
-    username: process.env.KAFKA_USERNAME,
-    password: process.env.KAFKA_PASSWORD
-  },
-  logLevel: logLevel.ERROR,
-  connectionTimeout: 30000,
-  requestTimeout: 30000,
-  retry: {
-    initialRetryTime: 100,
-    maxRetryTime: 30000,
-    retries: 10,
-    factor: 0.2,
-  },
-});
+    if (!process.env.KAFKA_USERNAME || !process.env.KAFKA_PASSWORD) {
+      throw new Error('KAFKA_USERNAME and KAFKA_PASSWORD environment variables must be set');
+    }
+
+    return {
+      clientId: process.env.KAFKA_CLIENT_ID || 'chat-app',
+      brokers: [serviceUri],
+      ssl: {
+        ca: [ca],
+        rejectUnauthorized: true,
+        servername: hostname,
+      },
+      sasl: {
+        mechanism: 'scram-sha-256',
+        username: process.env.KAFKA_USERNAME,
+        password: process.env.KAFKA_PASSWORD,
+      },
+      logLevel: logLevel.ERROR,
+      connectionTimeout: 30000,
+      requestTimeout: 30000,
+      retry: {
+        initialRetryTime: 100,
+        maxRetryTime: 30000,
+        retries: 10,
+        factor: 0.2,
+      },
+    };
+  }
+
+  // Local / docker-compose plaintext brokers.
+  const brokers = (process.env.KAFKA_BROKERS || 'localhost:9092')
+    .split(',')
+    .map((b) => b.trim())
+    .filter(Boolean);
+
+  return {
+    clientId: process.env.KAFKA_CLIENT_ID || 'chat-app',
+    brokers,
+    logLevel: logLevel.ERROR,
+    connectionTimeout: 30000,
+    requestTimeout: 30000,
+    retry: {
+      initialRetryTime: 100,
+      maxRetryTime: 30000,
+      retries: 10,
+      factor: 0.2,
+    },
+  };
+};
+
+export const kafka = new Kafka(buildKafkaConfig());
 
 export const producer = kafka.producer({
   idempotent: true,
   maxInFlightRequests: 1,
 });
 
-export const ensureTopic = async (topic) => {
+export const ensureTopic = async (topic, options = {}) => {
+  const numPartitions = options.numPartitions
+    || Number(process.env.KAFKA_TOPIC_PARTITIONS)
+    || 1;
+  const replicationFactor = options.replicationFactor
+    || Number(process.env.KAFKA_TOPIC_REPLICATION_FACTOR)
+    || (isCloudKafka ? 1 : 3);
+
+  // In local mode the broker default min.insync.replicas may be 2, which
+  // would reject acks=all produces for a topic created with replicationFactor
+  // 1. Override it per-topic so the idempotent producer keeps working.
+  const topicConfig = isCloudKafka ? [] : [{ name: 'min.insync.replicas', value: '1' }];
+
   const admin = kafka.admin();
   try {
     await admin.connect();
@@ -191,7 +136,12 @@ export const ensureTopic = async (topic) => {
     if (!topics.includes(topic)) {
       console.log(`Topic ${topic} does not exist. Creating...`);
       await admin.createTopics({
-        topics: [{ topic, numPartitions: 1, replicationFactor: 1 }],
+        topics: [{
+          topic,
+          numPartitions,
+          replicationFactor,
+          configEntries: topicConfig,
+        }],
       });
       console.log(`Topic ${topic} created successfully.`);
     } else {
@@ -207,4 +157,12 @@ export const connectKafkaConsumer = async (groupId) => {
   const consumer = kafka.consumer({ groupId });
   await consumer.connect();
   return consumer;
+};
+
+export const disconnectProducer = async () => {
+  try {
+    await producer.disconnect();
+  } catch (err) {
+    console.error('Failed to disconnect producer:', err);
+  }
 };

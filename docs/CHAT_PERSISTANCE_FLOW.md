@@ -1,15 +1,15 @@
 # Chat Data Persistence & Flow
 
-This document details the lifecycle of a chat message, highlighting the "Zero Message Loss" architecture using Redis, Kafka, and MongoDB with enhanced bulk processing and Kafka storage management.
+This document details the lifecycle of a chat message, highlighting the at-least-once delivery and idempotent persistence architecture using Redis, Kafka, and MongoDB with bulk processing and offset-after-write reliability.
 
 ## Architecture Guidelines
 
 -   **Real-Time First**: Users see messages immediately via WebSocket (Socket.IO).
 -   **Cache-Aside**: Recent messages are served from Redis for speed.
 -   **Async Persistence**: Long-term storage is handled asynchronously via Kafka to prevent database bottlenecks.
--   **Fault Tolerance**: The system is designed to self-heal and handle outages in Redis or Kafka.
--   **Bulk Optimization**: Intelligent batching for high-throughput scenarios.
--   **Storage Management**: Automatic Kafka cleanup to prevent storage bloat.
+-   **At-Least-Once Delivery**: Messages are retained in Kafka until committed; failed or unparsed poison messages are isolated to a Dead-Letter Queue (DLQ).
+-   **Bulk Write Optimization**: Worker buffers incoming messages and performs `bulkWrite` upserts, reducing database round-trips by 50% to 99.9% under load.
+-   **Offset-Coupled Persistence**: Kafka consumer offsets are committed only after successful MongoDB write execution, preventing silent message loss.
 
 ```mermaid
 flowchart TD
@@ -76,53 +76,50 @@ A dedicated background worker (`messageWorker.js`) handles storage with intellig
 
 1.  **Consumption**:
     -   Consumes messages from `chat-messages-persist` topic in batches.
+### 2.1 Consumption & Buffering
+
+1.  **Consumption**:
+    -   Consumes messages from `chat-messages-persist` topic in batches.
     -   Uses `autoCommit: false` for precise offset control.
 
 2.  **Intelligent Buffering**:
-    -   Messages are stored in an in-memory buffer.
-    -   **Flow Control**: If the buffer exceeds 5,000 messages, the consumer pauses to prevent Memory Overload.
-    -   **Dual Trigger System**:
-        -   **Time-based**: Every 5 minutes
-        -   **Volume-based**: When buffer reaches 1,000 messages (immediate flush)
+    -   Messages are accumulated in an in-memory buffer.
+    -   **Dual Trigger Flush System**:
+        -   **Volume-based**: When buffer reaches 1,000 messages (or configured `MESSAGE_BULK_THRESHOLD`), immediate flush is triggered.
+        -   **Time-based**: Periodic interval (5 minutes or configured `MESSAGE_FLUSH_INTERVAL_MS`) flushes accumulated messages.
 
 ### 2.2 Bulk Processing
 
 3.  **Enhanced Bulk Write (MongoDB)**:
-    -   Uses `Message.bulkWrite` with `upsert: true` based on unique `messageId`.
-    -   **Idempotency**: Duplicate messages (same `messageId`) won't create duplicates.
-    -   **Performance**: Bulk operations significantly improve throughput.
-    -   **Logging**: Detailed metrics on insert/modify counts.
+    -   Uses `Message.bulkWrite` with `updateOne` and `{ upsert: true }` keyed by unique `messageId`.
+    -   **Idempotency**: Duplicate messages (same `messageId`) are safe updates (`$setOnInsert`), preventing duplication upon retry.
+    -   **Efficiency**: Reduces database network round-trips by up to 99.9% under sustained traffic.
 
-4.  **Kafka Storage Management**:
-    -   **Offset Commit**: Kafka offsets are committed **only after** successful MongoDB write.
-    -   **Automatic Cleanup**: Committed offsets effectively remove processed messages from Kafka.
-    -   **Storage Efficiency**: Prevents Kafka topic from growing indefinitely.
+4.  **Kafka Storage & Offset Management**:
+    -   **Offset Commit**: Kafka offsets are resolved and committed **only after** successful MongoDB write.
+    -   **Storage Efficiency**: Standard topic retention ensures older committed messages are cleaned up by Kafka broker policies.
 
-### 2.3 Error Handling & Recovery
+### 2.3 Error Handling & Dead-Letter Queue (DLQ)
 
 5.  **Robust Error Handling**:
-    -   **DB Failures**: If MongoDB write fails, buffer is preserved for retry.
-    -   **Parse Errors**: Malformed messages are logged and skipped (offset committed).
-    -   **Consumer Pause**: On critical errors, consumer pauses to prevent message loss.
+    -   **DB Failures**: If MongoDB write fails, buffer is retained for subsequent retry; Kafka offsets are NOT resolved.
+    -   **Poison Messages**: Unparsable payloads or messages missing `messageId` are routed to `chat-messages-dlq`. The offset is committed only if DLQ delivery succeeds (preventing silent message loss).
 
 ```mermaid
 flowchart TD
     A[Kafka Consumer<br/>Batch Reading] --> B[Buffer Messages<br/>In-memory Storage]
     
     B --> C{Buffer Check}
-    C -->|>1,000 msgs| D[Immediate Flush<br/>Trigger: Volume]
+    C -->|>= 1,000 msgs| D[Immediate Flush<br/>Trigger: Volume]
     C -->|5 min elapsed| E[Scheduled Flush<br/>Trigger: Time]
-    C -->|Buffer > 5,000| F[PAUSE Consumer<br/>Prevent Memory Overflow]
     
     D --> G[MongoDB bulkWrite]
     E --> G
-    F --> H[Wait for Buffer<br/>to Drain Below 5k]
-    H --> B
     
     G --> I{Write Successful?}
-    I -->|Yes| J[Commit Kafka Offsets<br/>Cleanup Processed Messages]
+    I -->|Yes| J[Commit Kafka Offsets]
     J --> K[Clear Buffer]
-    I -->|No| L[Preserve Buffer<br/>Log Error, Retry Later]
+    I -->|No| L[Preserve Buffer<br/>Log Error, Retry on Next Trigger]
     L --> B
 ```
 
@@ -240,7 +237,7 @@ flowchart LR
         direction TB
         B1[Spike in Traffic] --> B2{Buffer Check}
         B2 -->|>1,000| B3[Auto-flush Triggered]
-        B2 -->|>5,000| B4[Consumer Paused]
+        B2 -->|>= 1,000| B3[Auto-flush Triggered]
         B3 --> B5[Immediate Processing]
         B5 --> B6[Normal Flow Restored]
     end
@@ -250,9 +247,10 @@ flowchart LR
 | :--- | :--- | :--- |
 | **Redis Down** | No cache hits. Slightly higher DB load. | **Read Path**: Falls back to Mongo. **Write Path**: Skips cache write, goes to Kafka. **Self-Heal**: When Redis returns, next read repopulates it. |
 | **Kafka Down** | Messages not persisted immediately. | **Write Path**: Saves to `chat:failed` Redis key. **Recovery**: Background job retries publishing to Kafka later. |
-| **MongoDB Down** | Worker cannot flush. | **Worker**: Keeps messages in memory (up to limit). **Kafka**: Retains messages in topic (retention policy). **Recovery**: Worker resumes processing when DB returns. |
-| **Worker Crash** | Processing stops. | **Kafka**: Offsets were not committed. New worker instance picks up from last commit. Duplicate processing handled by `upsert`. |
-| **High Load** | Buffer fills quickly. | **Auto-flush**: Triggers immediate flush at 1000 messages. **Flow Control**: Consumer pauses at 5000 messages to prevent memory overload. |
+| **MongoDB Down** | Worker cannot flush. | **Worker**: Buffer retained in memory. **Kafka**: Offsets stay uncommitted. **Recovery**: Worker retries bulk write on subsequent flush tick. |
+| **Worker Crash** | In-flight batch interrupted. | **Kafka**: Offsets were not committed before crash. New worker instance resumes from last committed offset. Redelivered messages are safely deduplicated by MongoDB `messageId` upsert. |
+| **Poison Message**| Malformed payload. | **Worker**: Message routed to DLQ (`chat-messages-dlq`). Source offset committed only on DLQ success. |
+| **High Load** | Buffer fills quickly. | **Auto-flush**: Triggers immediate bulk flush upon reaching 1,000 messages, minimizing latency. |
 
 ---
 
@@ -315,9 +313,8 @@ logError('MongoDB bulkWrite failed', {
 ### 8.1 Tunable Parameters
 
 ```javascript
-const BULK_THRESHOLD = 1000;     // Messages for immediate flush
-const FLUSH_INTERVAL = 300000;    // 5 minutes in milliseconds
-const MAX_BUFFER_SIZE = 5000;     // Maximum buffer before pause
+const BULK_THRESHOLD = 1000;     // Messages for immediate flush (MESSAGE_BULK_THRESHOLD)
+const FLUSH_INTERVAL = 300000;   // 5 minutes in milliseconds (MESSAGE_FLUSH_INTERVAL_MS)
 ```
 
 ### 8.2 Environment-Specific Settings

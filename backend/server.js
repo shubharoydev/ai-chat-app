@@ -84,6 +84,37 @@ const startServer = async () => {
     server.listen(port, () => {
       logInfo(`Server running on port ${port}`);
     });
+
+    // Graceful shutdown handling
+    const gracefulShutdown = async (signal) => {
+      logInfo(`Received ${signal}, starting graceful shutdown...`);
+      server.close(async () => {
+        logInfo('HTTP server closed');
+        try {
+          const { stopMessageBatching } = await import('./workers/messageWorker.js');
+          await stopMessageBatching();
+          logInfo('Worker message batching stopped & flushed');
+
+          const { closeRedisClient } = await import('./config/redisSetup.js');
+          await closeRedisClient();
+
+          const mongoose = (await import('mongoose')).default;
+          await mongoose.disconnect();
+          logInfo('MongoDB connection closed');
+
+          const { disconnectProducer } = await import('./config/kafka.js');
+          await disconnectProducer();
+          logInfo('Kafka producer disconnected');
+        } catch (err) {
+          logError('Error during graceful shutdown', { error: err.message });
+        } finally {
+          process.exit(0);
+        }
+      });
+    };
+
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
   } catch (error) {
     logError('Server startup failed', {
       error: error.message,

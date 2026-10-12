@@ -1,0 +1,48 @@
+{
+  "generatedAt": "2026-10-11T07:44:01.345Z",
+  "mongoUri": "mongodb://localhost:27017/chatapp_writebench",
+  "n": 2000,
+  "note": "writeCommands and recordsWritten are deltas read from serverStatus metrics.commands and opcounters.",
+  "results": [
+    {
+      "variant": "baseline (1 write per message)",
+      "batchSize": 1,
+      "writeCommands": 2000,
+      "recordsWritten": 2000,
+      "wallMs": 4868.7,
+      "commandReductionPct": 0
+    },
+    {
+      "variant": "batched (bulkWrite, batch=2)",
+      "batchSize": 2,
+      "writeCommands": 1000,
+      "recordsWritten": 2000,
+      "wallMs": 3922.9,
+      "commandReductionPct": 50
+    },
+    {
+      "variant": "batched (bulkWrite, batch=10)",
+      "batchSize": 10,
+      "writeCommands": 200,
+      "recordsWritten": 2000,
+      "wallMs": 2152.9,
+      "commandReductionPct": 90
+    },
+    {
+      "variant": "batched (bulkWrite, batch=100)",
+      "batchSize": 100,
+      "writeCommands": 20,
+      "recordsWritten": 2000,
+      "wallMs": 2010.1,
+      "commandReductionPct": 99
+    },
+    {
+      "variant": "batched (bulkWrite, batch=1000)",
+      "batchSize": 1000,
+      "writeCommands": 2,
+      "recordsWritten": 2000,
+      "wallMs": 2337.5,
+      "commandReductionPct": 99.9
+    }
+  ]
+}

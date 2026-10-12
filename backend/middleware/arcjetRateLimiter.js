@@ -1,8 +1,14 @@
 import arcjet, { tokenBucket } from "@arcjet/node";
 import { createError } from '../utils/errorHandler.js';
 
+// Opt-in escape hatch for local development and load testing. When
+// DISABLE_ARCJET=true the middleware becomes a pass-through and the Arcjet
+// client is never constructed (so no external calls are made). Default is
+// false: production behaviour is unchanged.
+const arcjetDisabled = process.env.DISABLE_ARCJET === 'true';
+
 // Initialize Arcjet with environment variable for the key
-const aj = arcjet({
+const aj = arcjetDisabled ? null : arcjet({
   key: process.env.ARCJET_KEY, 
   characteristics: ["userId"], 
   rules: [
@@ -24,6 +30,10 @@ const aj = arcjet({
  */
 export const arcjetRateLimiter = (options = {}) => {
   const { tokens = 1 } = options;
+
+  if (arcjetDisabled) {
+    return (req, res, next) => next();
+  }
 
   return async (req, res, next) => {
     try {

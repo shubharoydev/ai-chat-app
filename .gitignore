@@ -1,1 +1,35 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Environment and sensitive keys
 .env
+.env.*
+!.env.example
+certs/
+etc/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Performance artifacts & local test state
+performance/k6/backend-local.err.log
+performance/k6/backend-local.out.log
+performance/k6/backend-local.pid
+performance/k6/load-output.txt
+performance/k6/smoke-output.txt
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Build artifacts
+dist/
+build/
+coverage/

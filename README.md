@@ -20,17 +20,18 @@ The system follows a **Real-Time First + Asynchronous Persistence** architecture
 The AI Chat Application is architected around:
 
 * Instant message delivery via Socket.IO
-* Redis caching (cache-aside strategy)
-* Kafka-based asynchronous persistence
-* Bulk MongoDB writes with idempotency
+* Redis caching (cache-aside strategy) with chronological history
+* Kafka-based asynchronous persistence keyed by `chatId`
+* Bulk MongoDB writes with idempotent `$setOnInsert` on `messageId`
 * Offset commits only after successful DB persistence
+* Dead-letter queue (DLQ) isolation for poison messages
 * Self-healing retry & recovery mechanisms
 
-Designed for:
+Guarantees & Architecture:
 
-* Zero message loss
-* Horizontal scalability
-* High-throughput environments
+* **At-least-once delivery with idempotent persistence**: Re-delivered messages cause no duplication.
+* **Bulk write optimization**: Reduces MongoDB write command round-trips by up to 99.9% under load (flushing batches up to 1,000 operations).
+* **High-throughput asynchronous persistence**: Non-blocking message dispatch decoupled from DB latency.
 
 ---
 
@@ -49,23 +50,26 @@ Designed for:
 
 ## 🔹 Distributed Kafka Persistence
 
-* 3-broker Kafka cluster
-* Partition-based scaling
+* 3-broker Kafka cluster support (local Docker & Aiven cloud)
+* Per-conversation partition keying (`chatId`) for ordering
 * Idempotent message handling via `messageId`
 * Offset commit after MongoDB bulk write
+* Dead-letter queue (`chat-messages-dlq`) for poison message isolation
 
 ## 🔹 Redis Caching
 
 * Recent conversation storage with TTL
 * Cache-aside strategy
 * Automatic read-repair (self-healing cache)
+* Chronological chat history retrieval (oldest → newest)
 
 ## 🔹 Fault Tolerance
 
 * Kafka failure → Redis backup queue
 * Background retry worker
-* Worker pause/resume memory protection
-* MongoDB failure → buffer preservation
+* DLQ routing on malformed payloads with atomic offset commitment
+* MongoDB failure → buffer preservation for retry
+* Graceful server shutdown with buffer flushing
 
 ---
 
