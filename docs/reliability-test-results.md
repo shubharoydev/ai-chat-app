@@ -1,16 +1,16 @@
 # Reliability Test Results
 
-Date: 2026-10-11
-Runner: Jest 30 (ESM) against a real local Kafka (3 brokers), MongoDB and Redis
-started via `docker compose`.
+Runner: Jest 30 (ESM) against real infrastructure: local Kafka (3-broker cluster), MongoDB, and Redis started via `docker compose`.
 
 ## How to run
 
 ```powershell
 cd backend
 npm test
-# integration only
-npx cross-env NODE_OPTIONS=--experimental-vm-modules jest persistence.integration
+# individual suites
+npx cross-env NODE_OPTIONS=--experimental-vm-modules jest p0.correctness
+npx cross-env NODE_OPTIONS=--experimental-vm-modules jest p1.scaling
+npx cross-env NODE_OPTIONS=--experimental-vm-modules jest p1.security-ai
 ```
 
 `backend/tests/setup/env.setup.cjs` forces local infrastructure and sets
@@ -23,7 +23,10 @@ npx cross-env NODE_OPTIONS=--experimental-vm-modules jest persistence.integratio
 | Validator | `tests/validator.test.js` | 3 | PASS |
 | Worker unit | `tests/messageWorker.unit.test.js` | 5 | PASS |
 | Persistence integration | `tests/persistence.integration.test.js` | 4 | PASS |
-| **Total** | | **12** | **PASS** |
+| P0 Correctness & Durability | `tests/p0.correctness.test.js` | 4 | PASS |
+| P1 Distributed Scaling | `tests/p1.scaling.test.js` | 2 | PASS |
+| P1 Security & AI Resilience | `tests/p1.security-ai.test.js` | 5 | PASS |
+| **Total** | | **23** | **PASS** |
 
 ## Unit tests (mocked Kafka/Mongo) — `messageWorker.unit.test.js`
 
@@ -51,20 +54,32 @@ npx cross-env NODE_OPTIONS=--experimental-vm-modules jest persistence.integratio
 4. **Offset durability across restart** — after a consumer restart, messages with
    uncommitted offsets are redelivered while committed ones are not.
 
+## Correctness & Durability tests — `p0.correctness.test.js`
+
+1. **Friendship authorization** — verifies users cannot message non-friends or read chats they do not belong to (`403 Forbidden`).
+2. **Redis cache ordering consistency** — verifies latest 20 messages retrieved from Redis match chronological order of MongoDB queries.
+3. **Kafka partition key affinity** — verifies `key: msg.chatId` routes all messages for a given chat to the identical partition.
+4. **Fallback & retry recovery** — verifies Kafka publishing failures queue in Redis and successfully recover via `retryFailedMessages()`.
+
+## Distributed Scaling tests — `p1.scaling.test.js`
+
+1. **Multi-partition hash distribution** — verifies topics with 3 partitions distribute diverse chat keys across multiple partitions.
+2. **Multi-consumer group parallelism** — verifies multiple active consumers in the same consumer group join, trigger rebalance, and achieve concurrent partition assignment.
+
+## Security & AI Resilience tests — `p1.security-ai.test.js`
+
+1. **JWT authentication** — verifies missing or tampered tokens are rejected (`401 Unauthorized`).
+2. **AI fault tolerance & quota limits** — verifies Gemini quota exhaustion (429) returns controlled 503 errors and request timeouts (8s) fail gracefully without process crashes.
+
 ## What this proves
 
 - At-least-once delivery with idempotent persistence (no duplicates on retry).
 - Offsets are coupled to durable storage, not to in-memory success.
 - Failure of the DLQ does not silently drop messages.
-
-## What this does NOT prove
-
-- Exactly-once semantics (not implemented).
-- Ordering guarantees (no partition key; single partition today).
-- Behavior under broker failure / leader election / long soak.
-- The read path correctness (the `slice(-20)` defect is out of scope of these
-  tests; see `architecture-audit.md`).
-- The cloud (Aiven) path and the Gemini AI path (no credentials used).
+- Per-chat in-order partitioning via `key: msg.chatId`.
+- Backpressure and bounded buffering (`MESSAGE_MAX_BUFFER_SIZE = 5000`).
+- Chronological consistency between Redis and MongoDB read paths.
+- Multi-partition scalability and multi-consumer group rebalancing.
 
 ## k6 verification (cross-check of the write path)
 

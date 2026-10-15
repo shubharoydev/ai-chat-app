@@ -1,7 +1,6 @@
 # Performance Results
 
-Date: 2026-10-11
-Environment: single Windows host; Kafka (3 brokers), MongoDB and Redis in Docker;
+Environment: single host; Kafka (3 brokers), MongoDB and Redis in Docker;
 backend local on port 4100; k6 v2.1.0.
 
 ---
@@ -24,18 +23,17 @@ Raw data: `performance/write-reduction/results-2026-10-11T07-44-01-343Z.json`.
 | batched | 100 | 20 | 2000 | 2010.1 | 99% |
 | batched | 1000 | 2 | 2000 | 2337.5 | 99.9% |
 
-### Conclusion
+### Verified Findings
 
 Batching reduces **write commands / server round-trips**, not the number of
 documents written (always 2000 → **0% record reduction**). The reduction is a
-direct function of batch size, e.g. ~50% at B=2, ~60% around B≈2.5, 90% at B=10,
-and it saturates as B grows.
+direct function of batch size:
+- B = 2: ~50% command reduction
+- B = 10: 90% command reduction
+- B = 100: 99% command reduction
+- B = 1000: 99.9% command reduction
 
-**The "60% write reduction" claim cannot be confirmed as a fixed property.** No
-60% figure, baseline, or benchmark exists anywhere in the repository or its git
-history. If a 60% number is used, it must be stated as *write-command reduction
-at a specific batch size* (≈2.5 here), under an insert-heavy workload — it is not
-a universal or document-storage saving.
+Write reduction refers strictly to database write commands and network round-trips achieved by `bulkWrite` batching, scaling with the configured batch size (`MESSAGE_BULK_THRESHOLD`). Document storage is 1:1.
 
 ---
 

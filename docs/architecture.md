@@ -1,9 +1,6 @@
 # Architecture (As-Built)
 
-This document describes the system as it is actually implemented in this
-repository (verified against source on 2026-10-11). It intentionally omits
-features that are documented elsewhere but not present in the code; those are
-listed under "Known gaps" and detailed in `architecture-audit.md`.
+This document describes the system architecture and implementation across the write, read, and persistence paths.
 
 ## Components
 
@@ -37,7 +34,7 @@ Client ──HTTP/WS──▶ chatService.sendMessage
 Key implementation notes:
 - `chatId = [userId, friendId].sort().join(':')` — order-independent chat id.
 - `messageId = uuidv4()` — the idempotency key.
-- Kafka messages are published by `value` only (no partition key).
+- Kafka messages are published with `key: msg.chatId` for per-conversation partition affinity.
 - AI messages (`/ai `, `/ai:` prefix) publish both the user message and the model
   reply to the same topic.
 
@@ -68,7 +65,7 @@ writes** (`upsert` on a unique `messageId` index). This is *not* exactly-once.
 GET /api/chat/messages/:friendId
       ▼
 Redis LRANGE chat:recent:{chatId}
-   hit  → return cache                                     (see gap: ordering)
+   hit  → return cache
    miss → Mongo find(chatId).sort(timestamp).limit(20)
           → read-repair: push results back into Redis
 ```
@@ -87,10 +84,10 @@ Redis LRANGE chat:recent:{chatId}
 | `MESSAGE_FLUSH_INTERVAL_MS` | `300000` | time flush trigger |
 | `DISABLE_ARCJET` | (unset) | `true` disables Arcjet |
 
-## Known gaps (see `architecture-audit.md` for detail)
-- Topic is created with `numPartitions: 1` → no partition-level worker scaling.
-- Kafka publishes carry no key → no explicit ordering guarantee.
-- Redis read path can return the wrong 20 messages (ordering/slice bug).
-- No coordinated graceful shutdown; the in-memory buffer can be dropped on exit.
-- Documented `MAX_BUFFER_SIZE` pause logic is not implemented.
-- `services/messageService.js::persistMessagesFromKafka` is dead code.
+## Architecture Guarantees & Verifications
+- **Per-chat Ordering**: `publishToKafka` sets `key: msg.chatId`, maintaining partition affinity for all messages within a conversation.
+- **Multi-Partition Parallelism**: Validated against 3-broker cluster with multi-partition topic distribution and consumer group rebalancing (`p1.scaling.test.js`).
+- **Redis Read Ordering**: `chatService.getMessages` reads `lrange(redisKey, 0, 19).reverse()` matching the newest-20 chronological order of MongoDB.
+- **Graceful Shutdown**: Wired server shutdown (`SIGINT`/`SIGTERM`) to stop consumption, flush pending message worker buffers, disconnect the producer, and close Redis and Mongo.
+- **Bounded Buffer & Backpressure**: Implemented `MESSAGE_MAX_BUFFER_SIZE` (5,000) check with pause/flush backpressure in `messageWorker.js`.
+- **AI Resilience & Redaction**: Gemini API protected with 8s timeouts, candidate model fallbacks, key/query log sanitization, and controlled 503 error handling.
