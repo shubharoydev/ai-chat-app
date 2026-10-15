@@ -10,6 +10,7 @@ const DLQ_TOPIC = process.env.KAFKA_DLQ_TOPIC || 'chat-messages-dlq';
 const CONSUMER_GROUP = process.env.KAFKA_CONSUMER_GROUP || 'chat-group-worker';
 const FLUSH_INTERVAL = Number(process.env.MESSAGE_FLUSH_INTERVAL_MS) || 5 * 60 * 1000; // 5 minutes
 const BULK_THRESHOLD = Number(process.env.MESSAGE_BULK_THRESHOLD) || 1000; // flush at 1000 messages
+const MAX_BUFFER_SIZE = Number(process.env.MESSAGE_MAX_BUFFER_SIZE) || 5000; // backpressure ceiling
 
 // Handle to the active timer and flush routine, so the worker can be stopped
 // cleanly (flushing pending messages) on graceful shutdown.
@@ -134,6 +135,19 @@ export const startMessageBatching = async () => {
             });
           }
           continue;
+        }
+
+        // Flow control / Backpressure: if buffer is at or exceeds MAX_BUFFER_SIZE, flush immediately and wait
+        while (messageBuffer.length >= MAX_BUFFER_SIZE) {
+          logInfo('Buffer capacity reached, applying backpressure and flushing', {
+            bufferSize: messageBuffer.length,
+            maxBufferSize: MAX_BUFFER_SIZE,
+          });
+          await flushToMongo();
+          if (messageBuffer.length >= MAX_BUFFER_SIZE) {
+            await heartbeat();
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
         }
 
         messageBuffer.push({

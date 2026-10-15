@@ -28,6 +28,19 @@ const publishToKafka = async (msg) => {
 };
 
 export const sendMessage = async (userId, friendId, content, clientTempId) => {
+  const uid = new mongoose.Types.ObjectId(userId);
+  const fid = new mongoose.Types.ObjectId(friendId);
+
+  // Authorization check: Verify user is not messaging self and are friends
+  if (userId === friendId) {
+    throw createError(400, 'Cannot send message to yourself');
+  }
+
+  const isFriend = await Friend.findOne({ userId: uid, friendId: fid });
+  if (!isFriend) {
+    throw createError(403, 'Forbidden: You can only message users on your friends list');
+  }
+
   const tempId = clientTempId;
   const chatId = [userId, friendId].sort().join(':');
   const redisKey = `chat:recent:${chatId}`;
@@ -44,10 +57,15 @@ export const sendMessage = async (userId, friendId, content, clientTempId) => {
   };
 
   const redisClient = getRedisClient();
-  const io = getIO();
-
-  io.to(userId).emit("receiveMessage", message);
-  io.to(friendId).emit("receiveMessage", message);
+  try {
+    const io = getIO();
+    if (io) {
+      io.to(userId).emit("receiveMessage", message);
+      io.to(friendId).emit("receiveMessage", message);
+    }
+  } catch (ioErr) {
+    // Socket.IO may not be active in CLI or unit/integration test contexts
+  }
 
   // Handle AI mode
   if (content.startsWith("/ai ") || content.startsWith("/ai:")) {
@@ -108,8 +126,13 @@ export const sendMessage = async (userId, friendId, content, clientTempId) => {
         maxTimeout: 5000,
       });
     } catch (err) {
-      await redisClient.lpush(`chat:failed:${chatId}`, JSON.stringify(aiMessage));
-      await redisClient.expire(`chat:failed:${chatId}`, 7 * 24 * 3600);
+      logError('Kafka primary publish failed, falling back to Redis backup queue', { error: err.message, messageId: aiMessage.messageId });
+      try {
+        await redisClient.lpush(`chat:failed:${chatId}`, JSON.stringify(aiMessage));
+        await redisClient.expire(`chat:failed:${chatId}`, 7 * 24 * 3600);
+      } catch (backupErr) {
+        logError('CRITICAL: Both Kafka and Redis backup queue failed for AI message', { error: backupErr.message, messageId: aiMessage.messageId });
+      }
     }
 
     return [message, aiMessage];
@@ -131,8 +154,14 @@ export const sendMessage = async (userId, friendId, content, clientTempId) => {
       maxTimeout: 5000,
     });
   } catch (err) {
-    await redisClient.lpush(`chat:failed:${chatId}`, JSON.stringify(message));
-    await redisClient.expire(`chat:failed:${chatId}`, 7 * 24 * 3600);
+    logError('Kafka primary publish failed, falling back to Redis backup queue', { error: err.message, messageId: message.messageId });
+    try {
+      await redisClient.lpush(`chat:failed:${chatId}`, JSON.stringify(message));
+      await redisClient.expire(`chat:failed:${chatId}`, 7 * 24 * 3600);
+    } catch (backupErr) {
+      logError('CRITICAL: Both Kafka and Redis backup queue failed', { error: backupErr.message, messageId: message.messageId });
+      throw createError(503, 'Message could not be queued for persistence. Please try again.');
+    }
   }
 
   return message;
@@ -142,6 +171,15 @@ export const sendMessage = async (userId, friendId, content, clientTempId) => {
 //Get messages
 export const getMessages = async (userId, friendId) => {
   try {
+    const uid = new mongoose.Types.ObjectId(userId);
+    const fid = new mongoose.Types.ObjectId(friendId);
+
+    // Authorization check: Verify users are friends before reading history
+    const isFriend = await Friend.findOne({ userId: uid, friendId: fid });
+    if (!isFriend) {
+      throw createError(403, 'Forbidden: You can only view messages of users on your friends list');
+    }
+
     const redisClient = getRedisClient();
     const chatId = [userId, friendId].sort().join(':');
     const redisKey = `chat:recent:${chatId}`;
