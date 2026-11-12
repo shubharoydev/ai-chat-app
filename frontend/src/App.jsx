@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Analytics } from '@vercel/analytics/react';
 import { UserProvider } from './context/UserContext';
 import Home from './pages/Home';
 import Login from './pages/Login';
@@ -14,6 +15,7 @@ function App() {
           <Route path="/signup" element={<Signup />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
+        <Analytics />
       </BrowserRouter>
     </UserProvider>
   );
